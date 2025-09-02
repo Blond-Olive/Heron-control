@@ -20,7 +20,7 @@ Overall, the framework allows a mobile manipulator to approach an unknown door o
 
 ## Usage
 
-The project provides example scripts and modules to run both **simulated experiments** and **real-world robot runs**. The typical usage involves the following sequence: (1) navigate the mobile base to an approach position, (2) execute a whole-body motion (base + arm) to open or slide the mechanism, and (3) estimate mechanism parameters online during the motion. Below are instructions for running the system:
+We need to fix instruction 1. The project provides example scripts and modules to run both **simulated experiments** and **real-world robot runs**. The typical usage involves the following sequence: (1) navigate the mobile base to an approach position, (2) execute a whole-body motion (base + arm) to open or slide the mechanism, and (3) estimate mechanism parameters online during the motion. Below are instructions for running the system:
 1.  **Get SMC**
     
 
