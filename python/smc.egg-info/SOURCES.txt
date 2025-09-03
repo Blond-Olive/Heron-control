@@ -1,4 +1,5 @@
 LICENSE.txt
+LICENSE.txt:Zone.Identifier
 README.md
 setup.py
 initial_python_solution/main.py
@@ -32,10 +33,15 @@ initial_python_solution/robot_stuff/utils.py
 initial_python_solution/robot_stuff/webots_api_helper_funs.py
 smc/__init__.py
 smc.egg-info/PKG-INFO
+smc.egg-info/PKG-INFO:Zone.Identifier
 smc.egg-info/SOURCES.txt
+smc.egg-info/SOURCES.txt:Zone.Identifier
 smc.egg-info/dependency_links.txt
+smc.egg-info/dependency_links.txt:Zone.Identifier
 smc.egg-info/not-zip-safe
+smc.egg-info/not-zip-safe:Zone.Identifier
 smc.egg-info/top_level.txt
+smc.egg-info/top_level.txt:Zone.Identifier
 smc/control/__init__.py
 smc/control/control_loop_manager.py
 smc/control/freedrive.py
