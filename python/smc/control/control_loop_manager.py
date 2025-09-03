@@ -8,6 +8,7 @@ from smc.visualization.plotters import realTimePlotter
 
 from functools import partial
 import signal
+import sys
 import time
 import numpy as np
 from collections import deque
@@ -259,4 +260,4 @@ class ControlLoopManager:
         if self.args.visualizer:
             self.robot_manager.visualizer_manager.terminateProcess()
 
-        exit()
+        sys.exit(0)

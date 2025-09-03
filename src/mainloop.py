@@ -14,6 +14,11 @@ import time
 import scipy.io as sio
 import os
 
+import debugpy
+debugpy.listen(5678)  # 5678 is the default debug port
+
+
+
 class Adaptive_controller_manager:
     def __init__(self, robot, alpha=1, beta=1, gamma=2000):
         self.robot = robot
@@ -139,8 +144,11 @@ def get_args() -> argparse.Namespace:
     return args
 
 if __name__ == "__main__":
-    
+
     args = get_args()
+    if args.debug:
+        print("Waiting for debugger attach. Go to VSCode and do Run>Start debugging")
+        debugpy.wait_for_client()  # Program pauses here until VS Code attaches
     args.robot = "heron"
     # args.robot = "ur5e"
     robot = getRobotFromArgs(args)

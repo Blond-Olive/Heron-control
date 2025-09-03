@@ -189,6 +189,12 @@ def getMinimalArgParser():
         help="whether you want to visualize the collision approximation used in controllers with obstacle avoidance",
         default=False,
     )
+    parser.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        help="Connect to debugging in VSCode",
+        default=False,
+    )
     return parser
 
 
