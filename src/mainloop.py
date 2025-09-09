@@ -7,6 +7,8 @@ from smc.control.cartesian_space.cartesian_space_point_to_point import (
     park_base,
     move_u_ref
     )
+from phri_control import move
+import sys
 import argparse
 import numpy as np
 import pinocchio as pin
@@ -15,8 +17,6 @@ import scipy.io as sio
 import os
 
 import debugpy
-debugpy.listen(5678)  # 5678 is the default debug port
-
 
 
 class Adaptive_controller_manager:
@@ -148,6 +148,7 @@ if __name__ == "__main__":
     args = get_args()
     if args.debug:
         print("Waiting for debugger attach. Go to VSCode and do Run>Start debugging")
+        debugpy.listen(5678)  # 5678 is the default debug port
         debugpy.wait_for_client()  # Program pauses here until VS Code attaches
     args.robot = "heron"
     # args.robot = "ur5e"
@@ -199,7 +200,8 @@ if __name__ == "__main__":
     moveL_only_arm(args, robot, handle_pose)
     print('moveL done')
     Adaptive_controller.update_time()
-    move_u_ref(args, robot, Adaptive_controller)
+    move(args, robot, Adaptive_controller)
+
     robot.closeGripper()
     robot.openGripper()
     if args.real:
@@ -210,3 +212,5 @@ if __name__ == "__main__":
 
     if args.save_log:
         robot._log_manager.saveLog()
+    
+    sys.exit(0)

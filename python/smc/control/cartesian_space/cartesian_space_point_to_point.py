@@ -316,7 +316,8 @@ def controlLoopClik_u_ref(robot: SingleArmInterface, Adaptive_controller, new_po
     elif mode == 2:
         R = 0.5
         # open a revolving drawer
-        err_vector = np.array([0, 0, -v, 0, -v/R, 0])
+        # err_vector = np.array([0, 0, 0, 0, 0, 0])
+        err_vector = np.array([0, 0, -v, 0, -v/R, 0]) # [movement , rotation] [red, green, blue, red, green, blue]
     elif mode == 3:
         # open a sliding door
         err_vector = np.array([0, v, 0, 0, 0, 0])
