@@ -138,7 +138,7 @@ def key_listener():
                 last_key_pressed = ch
                 print(f"Key pressed: {ch}")
             elif ch == '\x03':  # Ctrl-C to exit
-                break
+                raise KeyboardInterrupt
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
