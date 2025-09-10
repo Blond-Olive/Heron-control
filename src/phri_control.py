@@ -10,7 +10,6 @@ import sys
 import termios
 import tty
 import threading
-import keyboard  # For key press detection
 
 err_vector = np.array([0, 0, 0, 0, 0, 0])
 cumulative_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -18,9 +17,8 @@ last_key_pressed = ''  # Global variable to store the last key pressed
 
 cumulative_pos_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-def move(args: Namespace, robot: SingleArmInterface, Adaptive_controller, run=True):
+def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
-    Adaptive_controller.update_time()
     """
     move
     -----
@@ -28,7 +26,7 @@ def move(args: Namespace, robot: SingleArmInterface, Adaptive_controller, run=Tr
     """
     
 
-    controlLoop = partial(controlLoopFunction, robot, Adaptive_controller)
+    controlLoop = partial(controlLoopFunction, robot)
     # we're not using any past data or logging, hence the empty arguments
     log_item = {
         "qs": np.zeros(robot.nq),
@@ -47,7 +45,7 @@ def move(args: Namespace, robot: SingleArmInterface, Adaptive_controller, run=Tr
     else:
         return loop_manager
     
-def controlLoopFunction(robot: SingleArmInterface, Adaptive_controller, new_pose, i):
+def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
     breakFlag = False
     log_item = {}
@@ -64,15 +62,15 @@ def controlLoopFunction(robot: SingleArmInterface, Adaptive_controller, new_pose
     global cumulative_err
 
     if last_key_pressed == 'w':
-        err_vector = np.array([v, 0, 0, 0, 0, 0])
-    elif last_key_pressed == 's':
         err_vector = np.array([-v, 0, 0, 0, 0, 0])
+    elif last_key_pressed == 's':
+        err_vector = np.array([v, 0, 0, 0, 0, 0])
     elif last_key_pressed == 'a':
         err_vector = np.array([0, v, 0, 0, 0, 0])
     elif last_key_pressed == 'd':
         err_vector = np.array([0, -v, 0, 0, 0, 0])
     elif last_key_pressed == 'c':
-        err_vector = impedance_control(robot, cumulative_err)
+        err_vector = pid_control(robot, cumulative_err)
     else:
         err_vector = np.array([0, 0, 0, 0, 0, 0])
 
@@ -83,7 +81,7 @@ def controlLoopFunction(robot: SingleArmInterface, Adaptive_controller, new_pose
     # print(J)
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
-    
+    #print(robot.q)
     v_cmd = simple_ik(1e-3, q, J, err_vector, robot)
     robot.sendVelocityCommand(v_cmd)
 
@@ -105,11 +103,11 @@ def simple_ik(
     qd = np.insert(qd_task, 1, 0.0)
     return qd
 
-def impedance_control(robot, cumulative_err):
+def pid_control(robot, cumulative_err):
     
     """
-    impedance control in cartesian space.
-    Instead of using velocity control, we use force control, but integrated.
+    PID control in cartesian space.
+    Using velocity control for now.
     V_d = Kp * e + Kd * e_dot + Km * integral(e)
     """
     global err_vector
@@ -121,7 +119,6 @@ def impedance_control(robot, cumulative_err):
     Ki = 0.05
 
     err_vector = -Kp * cumulative_err - Ki*cumulative_pos_err - Kd*e
-    print(f"Impedance control err_vector: {err_vector} cumulative_err: {cumulative_err}")
     cumulative_pos_err += cumulative_err
     return err_vector
 
@@ -136,7 +133,6 @@ def key_listener():
             ch = sys.stdin.read(1)
             if ch in ['w', 'a', 's', 'd', 'c']:
                 last_key_pressed = ch
-                print(f"Key pressed: {ch}")
             elif ch == '\x03':  # Ctrl-C to exit
                 raise KeyboardInterrupt
     finally:
@@ -145,3 +141,20 @@ def key_listener():
 def getKeyInputs():
     listener_thread = threading.Thread(target=key_listener, daemon=True)
     listener_thread.start()
+
+"""
+Questions for Yiannis:
+1. Should we use velocity control or force control?
+There does not seem to be a function to call in the SingleArmInterface to send force or torque commands.
+2. If we will be sending velocity commands, how is it possible to implement force control? 
+Is it that we are not able to send force commands in the simulation since it is only kinematics sim?
+Right now we are using a simple PID controller in cartesian space, and this is because we could not figure out how to 
+implement impedance control using velocity control, without first integrating the equation(Me''+De'+Ke=f=>Me'+De+kE=mv,wrong?), which just gives us PID control.
+3. How would we know the robots current versus desired end effector position?
+Right now we just sum the error over time to get the integral term. (cumulative_err) This leads to stationary errors.
+We understand that robot.q gives us the current joint rotations, but how do we get the current end-effector position? Is there a transformation somewhere we do not find?
+
+v_cmd = [base narrow dir, nothing, <base rot anti-clickwise>, joint 1, joint 2, joint 3 (middle), joint 4, joint 5, joint 6]
+
+q = [base pos (red), base pos (green), <base rot 1, base rot 2>, joint 1, joint 2, joint 3, joint 4, joint 5, joint 6]
+"""

@@ -200,7 +200,7 @@ if __name__ == "__main__":
     moveL_only_arm(args, robot, handle_pose)
     print('moveL done')
     Adaptive_controller.update_time()
-    move(args, robot, Adaptive_controller)
+    move(args, robot)
 
     robot.closeGripper()
     robot.openGripper()
