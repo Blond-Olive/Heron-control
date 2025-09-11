@@ -15,6 +15,7 @@ last_key_pressed = 'a'  # Global variable to store the last key pressed
 
 cumulative_pos_err = np.array([0.0, 0.0, 0.0])
 ee_position_old = np.array([0.0, 0.0, 0.0])
+vel_old = np.array([0.0, 0.0, 0.0])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -56,6 +57,8 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     # v = np.clip(K * v_max, -v_max, v_max)
     v = v_max
     robot.v_ee = v
+    J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
+
     
 
     global last_key_pressed
@@ -70,14 +73,13 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     elif last_key_pressed == 'd':
         err_vector = np.array([0, -v, 0, 0, 0, 0])
     elif last_key_pressed == 'c':
-        err_vector = pid_control(robot)
+        err_vector = impedance_control(robot, J)
     else:
         err_vector = np.array([0, 0, 0, 0, 0, 0])
 
     
     
 
-    J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
     # print(J)
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
@@ -129,6 +131,36 @@ def pid_control(robot):
     # Pad err_vector with three zeros at the end
     err_vector = np.concatenate([err_vector, np.zeros(3)])
     return err_vector
+
+def impedance_control(robot, J):
+    
+    """
+    """
+    global ee_position_goal
+    global ee_position_old
+    global vel_old
+
+    T_w_e = robot.computeT_w_e(robot.q)
+    ee_position = T_w_e.translation  # This is a numpy array [x, y, z]
+
+    ee_position_error =  ee_position_goal - ee_position
+
+    dt = robot.dt
+    B =  pin.crba(robot.model, robot.data, robot.q)
+    B = B[:robot.model.nv, :robot.model.nv]
+    M = np.linalg.inv(J @ np.linalg.inv(B) @ J.T)
+    M_inv=np.linalg.inv(M)
+    f = np.array([0.0, 0.0, 0.0])
+    D = 1.4
+    K = 1
+
+    vel = vel_old+robot.dt*M_inv@(f-D*vel_old-K*(ee_position_old-ee_position_goal))
+    ee_position_old = ee_position.copy()
+    vel_old=vel.copy()
+    # Pad err_vector with three zeros at the end
+    vel = np.concatenate([vel, np.zeros(3)])
+    return vel
+
 
 
 def key_listener():
