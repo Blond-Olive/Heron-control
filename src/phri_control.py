@@ -13,9 +13,9 @@ import threading
 
 last_key_pressed = 'a'  # Global variable to store the last key pressed
 
-cumulative_pos_err = np.array([0.0, 0.0, 0.0])
-ee_position_old = np.array([0.0, 0.0, 0.0])
-vel_old = np.array([0.0, 0.0, 0.0])
+cumulative_pos_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+ee_position_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+vel_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -25,7 +25,9 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     come from moveL
     """
     global ee_position_goal
-    ee_position_goal = robot.computeT_w_e(robot.q).translation
+    
+    T_w_e = robot.computeT_w_e(robot.q)
+    ee_position_goal = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
 
     controlLoop = partial(controlLoopFunction, robot)
     # we're not using any past data or logging, hence the empty arguments
@@ -149,8 +151,8 @@ def impedance_control(robot, J):
     B =  pin.crba(robot.model, robot.data, robot.q)
     B = B[:robot.model.nv, :robot.model.nv]
     M = np.linalg.inv(J @ np.linalg.inv(B) @ J.T)
-    M_inv=np.linalg.inv(M)
-    f = np.array([0.0, 0.0, 0.0])
+    M_inv = np.linalg.inv(M)
+    f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     D = 1.4
     K = 1
 
@@ -158,7 +160,6 @@ def impedance_control(robot, J):
     ee_position_old = ee_position.copy()
     vel_old=vel.copy()
     # Pad err_vector with three zeros at the end
-    vel = np.concatenate([vel, np.zeros(3)])
     return vel
 
 
