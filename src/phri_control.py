@@ -97,8 +97,8 @@ def simple_ik(
     # Remove the second column if needed (as in the original)
     J = np.delete(J, 1, axis=1)
     # Damped pseudoinverse solution for the primary task
-    J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
-    qd_task = J_pseudo @ err_vector
+    J_pseudo_inv = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
+    qd_task = J_pseudo_inv @ err_vector
     # Re-insert the removed DoF as zero
     qd = np.insert(qd_task, 1, 0.0)
     return qd
