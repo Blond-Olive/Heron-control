@@ -141,7 +141,7 @@ def impedance_control(robot, J):
     global vel_old
 
     T_w_e = robot.computeT_w_e(robot.q)
-    ee_position = T_w_e.translation  # This is a numpy array [x, y, z]
+    ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
 
     ee_position_error =  ee_position_goal - ee_position
 
