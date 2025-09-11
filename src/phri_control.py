@@ -11,11 +11,10 @@ import termios
 import tty
 import threading
 
-err_vector = np.array([0, 0, 0, 0, 0, 0])
-cumulative_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-last_key_pressed = ''  # Global variable to store the last key pressed
+last_key_pressed = 'a'  # Global variable to store the last key pressed
 
-cumulative_pos_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+cumulative_pos_err = np.array([0.0, 0.0, 0.0])
+ee_position_old = np.array([0.0, 0.0, 0.0])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -24,7 +23,8 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     -----
     come from moveL
     """
-    
+    global ee_position_goal
+    ee_position_goal = robot.computeT_w_e(robot.q).translation
 
     controlLoop = partial(controlLoopFunction, robot)
     # we're not using any past data or logging, hence the empty arguments
@@ -62,20 +62,20 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     global cumulative_err
 
     if last_key_pressed == 'w':
-        err_vector = np.array([-v, 0, 0, 0, 0, 0])
+        err_vector = np.array([0, 0, -v, 0, 0, 0])
     elif last_key_pressed == 's':
-        err_vector = np.array([v, 0, 0, 0, 0, 0])
+        err_vector = np.array([0, 0, v, 0, 0, 0])
     elif last_key_pressed == 'a':
         err_vector = np.array([0, v, 0, 0, 0, 0])
     elif last_key_pressed == 'd':
         err_vector = np.array([0, -v, 0, 0, 0, 0])
     elif last_key_pressed == 'c':
-        err_vector = pid_control(robot, cumulative_err)
+        err_vector = pid_control(robot)
     else:
         err_vector = np.array([0, 0, 0, 0, 0, 0])
 
     
-    cumulative_err += err_vector * robot.dt
+    
 
     J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
     # print(J)
@@ -103,23 +103,31 @@ def simple_ik(
     qd = np.insert(qd_task, 1, 0.0)
     return qd
 
-def pid_control(robot, cumulative_err):
+def pid_control(robot):
     
     """
     PID control in cartesian space.
     Using velocity control for now.
     V_d = Kp * e + Kd * e_dot + Km * integral(e)
     """
-    global err_vector
     global cumulative_pos_err
-    
-    e = err_vector #Using PID for now
-    Kp = 0.5
-    Kd = 0.1
-    Ki = 0.05
+    global ee_position_goal
+    global ee_position_old
 
-    err_vector = -Kp * cumulative_err - Ki*cumulative_pos_err - Kd*e
-    cumulative_pos_err += cumulative_err
+    T_w_e = robot.computeT_w_e(robot.q)
+    ee_position = T_w_e.translation  # This is a numpy array [x, y, z]
+
+    ee_position_error =  ee_position_goal - ee_position
+
+    Kp = 0.5
+    Kd = 0.01
+    Ki = 0.05
+    #cumulative_err += err_vector * robot.dt
+    err_vector = Kp * ee_position_error + Ki*cumulative_pos_err - Kd*(ee_position - ee_position_old) / robot.dt
+    cumulative_pos_err += ee_position_error
+    ee_position_old = ee_position.copy()
+    # Pad err_vector with three zeros at the end
+    err_vector = np.concatenate([err_vector, np.zeros(3)])
     return err_vector
 
 
