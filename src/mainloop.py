@@ -161,26 +161,16 @@ if __name__ == "__main__":
     args.max_v_percentage=0.2
     robot.base2ee = 0.75
     # 1: open a revolving door 2: revolving drawer 3: sliding door 4/5: sliding drawer
-    task = 2
-    # robot='ur5e', mode='whole_body', real=False, robot_ip='192.168.1.102', ctrl_freq=500, visualizer=True, viz_update_rate=-1, plotter=True, gripper='none', max_iterations=100000, start_from_current_pose=False, acceleration=0.3, max_v_percentage=0.3, debug_prints=False, save_log=False, save_dir='./data', run_name='latest_run', index_runs=False, past_window_size=5, controller_speed_scaling=1.0, contact_detecting_force=2.8, minimum_detectable_force_norm=3.0, visualize_collision_approximation=False, goal_error=0.01, tikhonov_damp=0.001, ik_solver='dampedPseudoinverse', alpha=0.01, beta=0.01, kp=1.0, kv=0.001, z_only=False, max_init_clik_iterations=10000, max_running_clik_iterations=1000, viz_test_path=False, randomly_generate_goal=False
-    if task == 3:
-    # for silding door
-        parking_lot = np.array([-1, -1.15, np.deg2rad(0)])
-    else:
-        parking_lot = np.array([-1.5, -1.15, np.deg2rad(30)])
+   
+    parking_lot = np.array([-1.5, -1.15, np.deg2rad(00)])
     # parking_lot = np.array([0, 0, 0])
     # parking_lot = np.array([0.5, 0.5, np.deg2rad(0)])
     
     # define the gripper pose for grabbing the handle
     offset = np.array([parking_lot[0], parking_lot[1], 0])
-    if task == 1:
-    # for silding door
-        translation = np.array([-0.8, 0.5, 1]) + offset     
-    elif task == 3:
-        translation = np.array([-0.8, 0.2, 1]) + offset
-    else:
-        translation = np.array([-0.8, 0.0, 1]) + offset
-    rotation = np.array([[0, 0, -1], [0, -1, 0], [-1, 0, 0]])
+
+    translation = np.array([-0.8, 0.0, 1]) + offset
+    rotation = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     handle_pose = pin.SE3(rotation, translation)
     
     # define the gripper pose before reaching the grab pose
@@ -188,12 +178,10 @@ if __name__ == "__main__":
     pre_handle_pose = pin.SE3(rotation, translation)
     # Mgoal = getRandomlyGeneratedGoal(args)
     robot.handle_pose = handle_pose
-    robot.task = task
+    robot.task = 2
     if args.visualizer:
         robot.visualizer_manager.sendCommand({"Mgoal": handle_pose})
     robot.angle_desired = -45
-    if robot.task==3:
-        robot.angle_desired = -60    
     # time.sleep(5)
     Adaptive_controller = Adaptive_controller_manager(robot)
     park_base(args, robot, parking_lot)
