@@ -219,6 +219,7 @@ class ControlLoopManager:
                 print("success in", i, "iterations!")
         else:
             print("FAIL: did not succed in", self.max_iterations, "iterations")
+            sys.exit(0)
             # self.stopHandler(None, None)
 
     def stopHandler(self, signum, frame):

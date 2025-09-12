@@ -16,6 +16,12 @@ last_key_pressed = 'a'  # Global variable to store the last key pressed
 cumulative_pos_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 ee_position_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 vel_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+
+D = 1.4
+K = 50
+f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -50,6 +56,9 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     
 def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
+
+    global ee_position
+    global ee_position_old
     breakFlag = False
     log_item = {}
     save_past_item = {}
@@ -66,26 +75,36 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     global last_key_pressed
     global cumulative_err
 
+    global f
+
+    T_w_e = robot.computeT_w_e(robot.q)
+    ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
+    force = 1000
     if last_key_pressed == 'w':
-        err_vector = np.array([0, 0, -v, 0, 0, 0])
-    elif last_key_pressed == 's':
+        #f = np.array([0, 0, force, 0, 0, 0])
         err_vector = np.array([0, 0, v, 0, 0, 0])
+    elif last_key_pressed == 's':
+        #f = np.array([0, 0, -force, 0, 0, 0])
+        err_vector = np.array([0, 0, -v, 0, 0, 0])
     elif last_key_pressed == 'a':
+        #f = np.array([0, force, 0, 0, 0, 0])
         err_vector = np.array([0, v, 0, 0, 0, 0])
     elif last_key_pressed == 'd':
-        err_vector = np.array([0, -v, 0, 0, 0, 0])
+        #f = np.array([0, -force, 0, 0, 0, 0])  
+        err_vector = np.array([0, -v, 0, 0, 0, 0])    
     elif last_key_pressed == 'c':
         err_vector = impedance_control(robot, J)
-    else:
-        err_vector = np.array([0, 0, 0, 0, 0, 0])
 
-    
+        #f = np.array([0, 0, 0, 0, 0, 0])
+
+   
     
 
     # print(J)
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
     #print(robot.q)
+    ee_position_old = ee_position.copy()
     v_cmd = simple_ik(1e-3, q, J, err_vector, robot)
     robot.sendVelocityCommand(v_cmd)
 
@@ -117,9 +136,10 @@ def pid_control(robot):
     global cumulative_pos_err
     global ee_position_goal
     global ee_position_old
+    
 
-    T_w_e = robot.computeT_w_e(robot.q)
-    ee_position = T_w_e.translation  # This is a numpy array [x, y, z]
+
+    
 
     ee_position_error =  ee_position_goal - ee_position
 
@@ -141,24 +161,23 @@ def impedance_control(robot, J):
     global ee_position_goal
     global ee_position_old
     global vel_old
+    global ee_position
 
-    T_w_e = robot.computeT_w_e(robot.q)
-    ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
-
-    ee_position_error =  ee_position_goal - ee_position
+    ee_position_error =  ee_position - ee_position_goal
 
     dt = robot.dt
     B =  pin.crba(robot.model, robot.data, robot.q)
     B = B[:robot.model.nv, :robot.model.nv]
     M = np.linalg.inv(J @ np.linalg.inv(B) @ J.T)
     M_inv = np.linalg.inv(M)
-    f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    D = 1.4
-    K = 1
+    global f
+    global D
+    global K
 
-    vel = vel_old+robot.dt*M_inv@(f-D*vel_old-K*(ee_position_old-ee_position_goal))
-    ee_position_old = ee_position.copy()
-    vel_old=vel.copy()
+    vel = vel_old+dt*M_inv@(f-D*vel_old-K*(ee_position-ee_position_goal))
+
+    vel_old= (ee_position - ee_position_old)/dt
+    
     # Pad err_vector with three zeros at the end
     return vel
 
