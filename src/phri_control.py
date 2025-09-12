@@ -19,8 +19,8 @@ vel_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 
-D = 1.4
-K = 50
+D = np.diag([100, 100, 100, 1, 1, 0.2]) # last three creates stationary error
+K = np.diag([150, 150, 150, 100, 100, 10])
 f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
@@ -30,10 +30,10 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     -----
     come from moveL
     """
-    global ee_position_goal
+    global ee_position_desired
     
     T_w_e = robot.computeT_w_e(robot.q)
-    ee_position_goal = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
+    ee_position_desired = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
 
     controlLoop = partial(controlLoopFunction, robot)
     # we're not using any past data or logging, hence the empty arguments
@@ -79,7 +79,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
-    force = 1000
+    force = 10
     if last_key_pressed == 'w':
         #f = np.array([0, 0, force, 0, 0, 0])
         err_vector = np.array([0, 0, v, 0, 0, 0])
@@ -91,7 +91,13 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
         err_vector = np.array([0, v, 0, 0, 0, 0])
     elif last_key_pressed == 'd':
         #f = np.array([0, -force, 0, 0, 0, 0])  
-        err_vector = np.array([0, -v, 0, 0, 0, 0])    
+        err_vector = np.array([0, -v, 0, 0, 0, 0])
+    elif last_key_pressed == 'q':
+        f = np.array([0, 0, 0, 0, 0, 0])  
+        err_vector = np.array([0, 0, 0, 0, 0, 0])   
+    elif last_key_pressed == 'e':
+        f = np.array([0, force, 0, 0, 0, 0])  
+        err_vector = np.array([0, 0, 0, 0, 0, 0])  
     elif last_key_pressed == 'c':
         err_vector = impedance_control(robot, J)
 
@@ -126,59 +132,41 @@ def simple_ik(
     qd = np.insert(qd_task, 1, 0.0)
     return qd
 
-def pid_control(robot):
-    
-    """
-    PID control in cartesian space.
-    Using velocity control for now.
-    V_d = Kp * e + Kd * e_dot + Km * integral(e)
-    """
-    global cumulative_pos_err
-    global ee_position_goal
-    global ee_position_old
-    
 
-
-    
-
-    ee_position_error =  ee_position_goal - ee_position
-
-    Kp = 0.5
-    Kd = 0.01
-    Ki = 0.05
-    #cumulative_err += err_vector * robot.dt
-    err_vector = Kp * ee_position_error + Ki*cumulative_pos_err - Kd*(ee_position - ee_position_old) / robot.dt
-    cumulative_pos_err += ee_position_error
-    ee_position_old = ee_position.copy()
-    # Pad err_vector with three zeros at the end
-    err_vector = np.concatenate([err_vector, np.zeros(3)])
-    return err_vector
 
 def impedance_control(robot, J):
     
     """
     """
-    global ee_position_goal
+    global ee_position_desired
     global ee_position_old
     global vel_old
     global ee_position
 
-    ee_position_error =  ee_position - ee_position_goal
+    ee_position_error =  ee_position - ee_position_desired
 
     dt = robot.dt
     B =  pin.crba(robot.model, robot.data, robot.q)
-    B = B[:robot.model.nv, :robot.model.nv]
+    # B = B[:robot.model.nv, :robot.model.nv]
     M = np.linalg.inv(J @ np.linalg.inv(B) @ J.T)
     M_inv = np.linalg.inv(M)
     global f
     global D
     global K
 
-    vel = vel_old+dt*M_inv@(f-D*vel_old-K*(ee_position-ee_position_goal))
+    vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    vel_desired_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+    x1 = ee_position - ee_position_desired
+    x2 = vel_old - vel_desired
+
+    x1_dot = x2
+    x2_dot = M_inv@(f-D@x2-K@x1)
+
+    vel = vel_old + (vel_desired - vel_desired_old) + dt*x2_dot
 
     vel_old= (ee_position - ee_position_old)/dt
     
-    # Pad err_vector with three zeros at the end
     return vel
 
 
@@ -191,7 +179,7 @@ def key_listener():
         tty.setraw(fd)
         while True:
             ch = sys.stdin.read(1)
-            if ch in ['w', 'a', 's', 'd', 'c']:
+            if ch in ['w', 'a', 's', 'd', 'q', 'e', 'c']:
                 last_key_pressed = ch
             elif ch == '\x03':  # Ctrl-C to exit
                 raise KeyboardInterrupt
@@ -202,17 +190,38 @@ def getKeyInputs():
     listener_thread = threading.Thread(target=key_listener, daemon=True)
     listener_thread.start()
 
+
+def pid_control(robot):
+    
+    """
+    PID control in cartesian space.
+    Using velocity control for now.
+    V_d = Kp * e + Kd * e_dot + Km * integral(e)
+    """
+    global cumulative_pos_err
+    global ee_position_desired
+    global ee_position_old
+    
+
+
+    
+
+    ee_position_error =  ee_position_desired - ee_position
+
+    Kp = 0.5
+    Kd = 0.01
+    Ki = 0.05
+    #cumulative_err += err_vector * robot.dt
+    err_vector = Kp * ee_position_error + Ki*cumulative_pos_err - Kd*(ee_position - ee_position_old) / robot.dt
+    cumulative_pos_err += ee_position_error
+    ee_position_old = ee_position.copy()
+    # Pad err_vector with three zeros at the end
+    err_vector = np.concatenate([err_vector, np.zeros(3)])
+    return err_vector
+
 """
 Questions for Yiannis:
-1. Should we use velocity control or force control?
-There does not seem to be a function to call in the SingleArmInterface to send force or torque commands.
-2. If we will be sending velocity commands, how is it possible to implement force control? 
-Is it that we are not able to send force commands in the simulation since it is only kinematics sim?
-Right now we are using a simple PID controller in cartesian space, and this is because we could not figure out how to 
-implement impedance control using velocity control, without first integrating the equation(Me''+De'+Ke=f=>Me'+De+kE=mv,wrong?), which just gives us PID control.
-3. How would we know the robots current versus desired end effector position?
-Right now we just sum the error over time to get the integral term. (cumulative_err) This leads to stationary errors.
-We understand that robot.q gives us the current joint rotations, but how do we get the current end-effector position? Is there a transformation somewhere we do not find?
+Should vel_old (x_2_k-1) be the actual old velocity or just the copy of vel
 
 v_cmd = [base narrow dir, nothing, <base rot anti-clickwise>, joint 1, joint 2, joint 3 (middle), joint 4, joint 5, joint 6]
 
