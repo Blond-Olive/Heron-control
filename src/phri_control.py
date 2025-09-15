@@ -23,7 +23,7 @@ D = np.diag([100, 100, 100, 1, 1, 0.2]) # last three creates stationary error
 K = np.diag([150, 150, 150, 100, 100, 10])
 f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-K_p = np.diag([0.5, 0.5, 0.5, 0.1, 0.1, 0.1])
+K_p = np.diag([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -39,7 +39,7 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
 
     global x1, x2, vel_desired
     vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    x1 = ee_position_desired
+    x1 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     x2 = vel_desired
 
     controlLoop = partial(controlLoopFunction, robot)
@@ -104,6 +104,24 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
         #err_vector = np.array([0, 0, 0, 0, 0, 0])   
     elif last_key_pressed == 'e':
         f += np.array([-force, 0, 0, 0, 0, 0])  
+        #err_vector = np.array([0, 0, 0, 0, 0, 0])  
+    elif last_key_pressed == 'i':
+        f += np.array([0, 0, 0, 0, 0, force])
+        #err_vector = np.array([0, 0, v, 0, 0, 0])
+    elif last_key_pressed == 'k':
+        f += np.array([0, 0, 0, 0, 0, -force])
+        #err_vector = np.array([0, 0, -v, 0, 0, 0])
+    elif last_key_pressed == 'j':
+        f += np.array([0, 0, 0, 0, force, 0])
+        #err_vector = np.array([0, v, 0, 0, 0, 0])
+    elif last_key_pressed == 'l':
+        f += np.array([0, 0, 0, 0, -force, 0])  
+        #err_vector = np.array([0, -v, 0, 0, 0, 0])
+    elif last_key_pressed == 'u':
+        f += np.array([0, 0, 0, 0, 0, force])  
+        #err_vector = np.array([0, 0, 0, 0, 0, 0])   
+    elif last_key_pressed == 'o':
+        f += np.array([-force, 0, 0, 0, 0, -force])  
         #err_vector = np.array([0, 0, 0, 0, 0, 0])  
     elif last_key_pressed == 'c':
         f = np.array([0, 0, 0, 0, 0, 0])
@@ -182,7 +200,7 @@ def key_listener():
         tty.setraw(fd)
         while True:
             ch = sys.stdin.read(1)
-            if ch in ['w', 'a', 's', 'd', 'q', 'e', 'c']:
+            if ch in ['w', 'a', 's', 'd', 'q', 'e', 'c','u','i','o','j','k','l']:
                 last_key_pressed = ch
             elif ch == '\x03':  # Ctrl-C to exit
                 raise KeyboardInterrupt
