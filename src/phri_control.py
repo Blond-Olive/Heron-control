@@ -11,7 +11,7 @@ import termios
 import tty
 import threading
 
-last_key_pressed = 'a'  # Global variable to store the last key pressed
+last_key_pressed = ''  # Global variable to store the last key pressed
 
 cumulative_pos_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 ee_position_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -22,6 +22,8 @@ ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 D = np.diag([100, 100, 100, 1, 1, 0.2]) # last three creates stationary error
 K = np.diag([150, 150, 150, 100, 100, 10])
 f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+K_p = np.diag([0.5, 0.5, 0.5, 0.1, 0.1, 0.1])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -34,6 +36,11 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position_desired = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
+
+    global x1, x2, vel_desired
+    vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    x1 = ee_position_desired
+    x2 = vel_desired
 
     controlLoop = partial(controlLoopFunction, robot)
     # we're not using any past data or logging, hence the empty arguments
@@ -81,29 +88,29 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
     force = 10
     if last_key_pressed == 'w':
-        #f = np.array([0, 0, force, 0, 0, 0])
-        err_vector = np.array([0, 0, v, 0, 0, 0])
+        f += np.array([0, 0, force, 0, 0, 0])
+        #err_vector = np.array([0, 0, v, 0, 0, 0])
     elif last_key_pressed == 's':
-        #f = np.array([0, 0, -force, 0, 0, 0])
-        err_vector = np.array([0, 0, -v, 0, 0, 0])
+        f += np.array([0, 0, -force, 0, 0, 0])
+        #err_vector = np.array([0, 0, -v, 0, 0, 0])
     elif last_key_pressed == 'a':
-        #f = np.array([0, force, 0, 0, 0, 0])
-        err_vector = np.array([0, v, 0, 0, 0, 0])
+        f += np.array([0, force, 0, 0, 0, 0])
+        #err_vector = np.array([0, v, 0, 0, 0, 0])
     elif last_key_pressed == 'd':
-        #f = np.array([0, -force, 0, 0, 0, 0])  
-        err_vector = np.array([0, -v, 0, 0, 0, 0])
+        f += np.array([0, -force, 0, 0, 0, 0])  
+        #err_vector = np.array([0, -v, 0, 0, 0, 0])
     elif last_key_pressed == 'q':
-        f = np.array([0, 0, 0, 0, 0, 0])  
-        err_vector = np.array([0, 0, 0, 0, 0, 0])   
+        f += np.array([force, 0, 0, 0, 0, 0])  
+        #err_vector = np.array([0, 0, 0, 0, 0, 0])   
     elif last_key_pressed == 'e':
-        f = np.array([0, force, 0, 0, 0, 0])  
-        err_vector = np.array([0, 0, 0, 0, 0, 0])  
+        f += np.array([-force, 0, 0, 0, 0, 0])  
+        #err_vector = np.array([0, 0, 0, 0, 0, 0])  
     elif last_key_pressed == 'c':
-        err_vector = impedance_control(robot, J)
+        f = np.array([0, 0, 0, 0, 0, 0])
 
         #f = np.array([0, 0, 0, 0, 0, 0])
-
-   
+    last_key_pressed = ''  # reset the key
+    err_vector = admittance_control(robot, J)
     
 
     # print(J)
@@ -134,7 +141,7 @@ def simple_ik(
 
 
 
-def impedance_control(robot, J):
+def admittance_control(robot, J):
     
     """
     """
@@ -150,24 +157,20 @@ def impedance_control(robot, J):
     # B = B[:robot.model.nv, :robot.model.nv]
     M = np.linalg.inv(J @ np.linalg.inv(B) @ J.T)
     M_inv = np.linalg.inv(M)
-    global f
-    global D
-    global K
-
-    vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    vel_desired_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-
-    x1 = ee_position - ee_position_desired
-    x2 = vel_old - vel_desired
+    global f, D, K, x1, x2, vel_desired, K_p
 
     x1_dot = x2
     x2_dot = M_inv@(f-D@x2-K@x1)
 
-    vel = vel_old + (vel_desired - vel_desired_old) + dt*x2_dot
+    x1 = x1 + x1_dot*dt
+    x2 = x2 + x2_dot*dt
 
-    vel_old= (ee_position - ee_position_old)/dt
+    p_reference = x1 + ee_position_desired
+    p_dot_reference = x2 + vel_desired
+
+    vel_ref = p_dot_reference - K_p@(ee_position - p_reference)
     
-    return vel
+    return vel_ref
 
 
 
