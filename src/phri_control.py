@@ -160,13 +160,21 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
     last_key_pressed = ''  # reset the key
     err_vector = admittance_control(robot, J)
-    
-
+    base_pos = q[:3]
+    # Only use translation part for move_towards
+    new_base_pos = move_towards(base_pos, ee_position[:3], speed=1, dt=robot.dt)
+    base_error = new_base_pos - base_pos
+    err_vector_base = np.zeros(6)
+    err_vector_base[:3] = base_error
     # print(J)
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
     #print(robot.q)
+    ee_position_old = ee_position.copy()
+    v_cmd_base = base_only_ik(1e-3, q, J, err_vector_base, robot)
     v_cmd = manipulator_only_ik(1e-3, q, J, err_vector, robot)
+    v_cmd[:3] = v_cmd_base[:3]  
+
     robot.sendVelocityCommand(v_cmd)
 
     return breakFlag, save_past_item, log_item
@@ -256,6 +264,16 @@ def key_listener():
 def getKeyInputs():
     listener_thread = threading.Thread(target=key_listener, daemon=True)
     listener_thread.start()
+
+def move_towards(p, target, speed, dt):
+    p, target = np.array(p, float), np.array(target, float)
+    direction = target - p
+    dist = np.linalg.norm(direction)
+    if dist < 2e-3:  # already there
+        return target
+    step = min(speed * dt, dist)  # don’t overshoot
+    return p + (direction / dist) * step
+
 
 
 """
