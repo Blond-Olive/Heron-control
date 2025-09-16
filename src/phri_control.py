@@ -13,9 +13,6 @@ import threading
 
 last_key_pressed = ''  # Global variable to store the last key pressed
 
-cumulative_pos_err = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-ee_position_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-vel_old = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 
@@ -25,6 +22,9 @@ f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 K_p = np.diag([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
 
+t = 0
+goincircle = False
+
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
     """
@@ -32,14 +32,15 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     -----
     come from moveL
     """
-    global ee_position_desired
+    global ee_position_desired, ee_position_desired_old
     
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position_desired = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
+    ee_position_desired_old = ee_position_desired.copy()
 
     global x1, x2, vel_desired
     vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    x1 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    x1 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) # pos reference - position desired = 0
     x2 = vel_desired
 
     controlLoop = partial(controlLoopFunction, robot)
@@ -65,7 +66,6 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
 
     global ee_position
-    global ee_position_old
     breakFlag = False
     log_item = {}
     save_past_item = {}
@@ -79,10 +79,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
     
 
-    global last_key_pressed
-    global cumulative_err
-
-    global f
+    global last_key_pressed, cumulative_err, f, ee_position_desired, ee_position_desired_old, t, vel_desired, goincircle
 
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
@@ -123,9 +120,22 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     elif last_key_pressed == 'o':
         f += np.array([-force, 0, 0, 0, 0, -force])  
         #err_vector = np.array([0, 0, 0, 0, 0, 0])  
+    elif last_key_pressed == 'g':
+        goincircle = not goincircle
     elif last_key_pressed == 'c':
         f = np.array([0, 0, 0, 0, 0, 0])
 
+    if(goincircle): 
+        degrees_per_second = 30
+        radius = 0.1
+        inner = robot.dt*np.pi/180 *degrees_per_second
+        ee_pos_des_old = ee_position_desired.copy()
+        ee_position_desired = ee_position_desired_old + radius * np.array([np.cos(t*inner), np.sin(t*inner), 0, 0, 0, 0])
+        vel_desired = radius * np.array([-np.sin(t*inner)*inner/robot.dt, np.cos(t*inner)*inner/robot.dt, 0, 0, 0, 0])
+        t += 1
+    else:
+        ee_position_desired = ee_position_desired_old
+        vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         #f = np.array([0, 0, 0, 0, 0, 0])
     last_key_pressed = ''  # reset the key
     err_vector = admittance_control(robot, J)
@@ -135,7 +145,6 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
     #print(robot.q)
-    ee_position_old = ee_position.copy()
     v_cmd = simple_ik(1e-3, q, J, err_vector, robot)
     robot.sendVelocityCommand(v_cmd)
 
@@ -164,8 +173,6 @@ def admittance_control(robot, J):
     """
     """
     global ee_position_desired
-    global ee_position_old
-    global vel_old
     global ee_position
 
     ee_position_error =  ee_position - ee_position_desired
@@ -200,7 +207,7 @@ def key_listener():
         tty.setraw(fd)
         while True:
             ch = sys.stdin.read(1)
-            if ch in ['w', 'a', 's', 'd', 'q', 'e', 'c','u','i','o','j','k','l']:
+            if ch in ['w', 'a', 's', 'd', 'q', 'e', 'c','u','i','o','j','k','l', 'g']:
                 last_key_pressed = ch
             elif ch == '\x03':  # Ctrl-C to exit
                 raise KeyboardInterrupt
@@ -212,37 +219,8 @@ def getKeyInputs():
     listener_thread.start()
 
 
-def pid_control(robot):
-    
-    """
-    PID control in cartesian space.
-    Using velocity control for now.
-    V_d = Kp * e + Kd * e_dot + Km * integral(e)
-    """
-    global cumulative_pos_err
-    global ee_position_desired
-    global ee_position_old
-    
-
-
-    
-
-    ee_position_error =  ee_position_desired - ee_position
-
-    Kp = 0.5
-    Kd = 0.01
-    Ki = 0.05
-    #cumulative_err += err_vector * robot.dt
-    err_vector = Kp * ee_position_error + Ki*cumulative_pos_err - Kd*(ee_position - ee_position_old) / robot.dt
-    cumulative_pos_err += ee_position_error
-    ee_position_old = ee_position.copy()
-    # Pad err_vector with three zeros at the end
-    err_vector = np.concatenate([err_vector, np.zeros(3)])
-    return err_vector
-
 """
 Questions for Yiannis:
-Should vel_old (x_2_k-1) be the actual old velocity or just the copy of vel
 
 v_cmd = [base narrow dir, nothing, <base rot anti-clickwise>, joint 1, joint 2, joint 3 (middle), joint 4, joint 5, joint 6]
 

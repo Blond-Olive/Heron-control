@@ -69,7 +69,7 @@ class ControlLoopManager:
     ):
         signal.signal(signal.SIGINT, self.stopHandler)
         self.pid = getpid()
-        self.max_iterations: int = args.max_iterations
+        self.max_iterations: int = 10000000000
         self.robot_manager: AbstractRobotManager = robot_manager
         self.controlLoop = controlLoop  # TODO: declare partial function type
         self.final_iteration = -1  # because we didn't even start yet
