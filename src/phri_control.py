@@ -136,7 +136,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     # J[:, 1] = 1e-6
     #print(robot.q)
     ee_position_old = ee_position.copy()
-    v_cmd = simple_ik(1e-3, q, J, err_vector, robot)
+    v_cmd = manipulator_only_ik(1e-3, q, J, err_vector, robot)
     robot.sendVelocityCommand(v_cmd)
 
     return breakFlag, save_past_item, log_item
@@ -157,6 +157,25 @@ def simple_ik(
     qd = np.insert(qd_task, 1, 0.0)
     return qd
 
+def base_only_ik(tikhonov_damp, q, J, err_vector, robot):
+    # Use only the base columns (assume first 3 are base)
+    J_base = J[:, :3]
+    # Damped pseudoinverse for base
+    J_base_pinv = J_base.T @ np.linalg.inv(J_base @ J_base.T + np.eye(J_base.shape[0]) * tikhonov_damp)
+    v_base = J_base_pinv @ err_vector
+    # Compose full velocity command: base velocities, zeros for arm
+    v_cmd = np.concatenate([v_base, np.zeros(J.shape[1] - 3)])
+    return v_cmd
+
+def manipulator_only_ik(tikhonov_damp, q, J, err_vector, robot):
+    # Assume base is first 3 DoFs, manipulator is the rest
+    J_manip = J[:, 3:]
+    # Damped pseudoinverse for manipulator
+    J_manip_pinv = J_manip.T @ np.linalg.inv(J_manip @ J_manip.T + np.eye(J_manip.shape[0]) * tikhonov_damp)
+    v_manip = J_manip_pinv @ err_vector
+    # Compose full velocity command: zeros for base, manipulator velocities
+    v_cmd = np.concatenate([np.zeros(3), v_manip])
+    return v_cmd
 
 
 def admittance_control(robot, J):
