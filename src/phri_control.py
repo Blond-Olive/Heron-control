@@ -24,6 +24,7 @@ K_p = np.diag([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
 
 t = 0
 goincircle = False
+f_add = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -32,11 +33,12 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     -----
     come from moveL
     """
-    global ee_position_desired, ee_position_desired_old
+    global ee_position_desired, ee_position_desired_old, force_pull_position
     
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position_desired = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
     ee_position_desired_old = ee_position_desired.copy()
+    force_pull_position = ee_position_desired.copy()
 
     global x1, x2, vel_desired
     vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -79,51 +81,58 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
     
 
-    global last_key_pressed, cumulative_err, f, ee_position_desired, ee_position_desired_old, t, vel_desired, goincircle
+    global last_key_pressed, cumulative_err, f, f_add, ee_position_desired, ee_position_desired_old, t, vel_desired, goincircle, force_pull_position
 
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
     force = 10
     if last_key_pressed == 'w':
-        f += np.array([0, 0, force, 0, 0, 0])
+        force_pull_position += np.array([0.0, 0.0, 0.1, 0.0, 0.0, 0.0])
+        #f += np.array([0, 0, force, 0, 0, 0])
         #err_vector = np.array([0, 0, v, 0, 0, 0])
     elif last_key_pressed == 's':
-        f += np.array([0, 0, -force, 0, 0, 0])
+        force_pull_position -= np.array([0.0, 0.0, 0.1, 0.0, 0.0, 0.0])
+        #f += np.array([0, 0, -force, 0, 0, 0])
         #err_vector = np.array([0, 0, -v, 0, 0, 0])
     elif last_key_pressed == 'a':
-        f += np.array([0, force, 0, 0, 0, 0])
+        force_pull_position += np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0])
+        #f += np.array([0, force, 0, 0, 0, 0])
         #err_vector = np.array([0, v, 0, 0, 0, 0])
     elif last_key_pressed == 'd':
-        f += np.array([0, -force, 0, 0, 0, 0])  
+        force_pull_position -= np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0])
+        #f += np.array([0, -force, 0, 0, 0, 0])  
         #err_vector = np.array([0, -v, 0, 0, 0, 0])
     elif last_key_pressed == 'q':
-        f += np.array([force, 0, 0, 0, 0, 0])  
+        force_pull_position += np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
+        #f += np.array([force, 0, 0, 0, 0, 0])  
         #err_vector = np.array([0, 0, 0, 0, 0, 0])   
     elif last_key_pressed == 'e':
-        f += np.array([-force, 0, 0, 0, 0, 0])  
-        #err_vector = np.array([0, 0, 0, 0, 0, 0])  
-    elif last_key_pressed == 'i':
-        f += np.array([0, 0, 0, 0, 0, force])
-        #err_vector = np.array([0, 0, v, 0, 0, 0])
-    elif last_key_pressed == 'k':
-        f += np.array([0, 0, 0, 0, 0, -force])
-        #err_vector = np.array([0, 0, -v, 0, 0, 0])
-    elif last_key_pressed == 'j':
-        f += np.array([0, 0, 0, 0, force, 0])
-        #err_vector = np.array([0, v, 0, 0, 0, 0])
-    elif last_key_pressed == 'l':
-        f += np.array([0, 0, 0, 0, -force, 0])  
-        #err_vector = np.array([0, -v, 0, 0, 0, 0])
-    elif last_key_pressed == 'u':
-        f += np.array([0, 0, 0, 0, 0, force])  
-        #err_vector = np.array([0, 0, 0, 0, 0, 0])   
-    elif last_key_pressed == 'o':
-        f += np.array([-force, 0, 0, 0, 0, -force])  
+        force_pull_position -= np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
+        #f += np.array([-force, 0, 0, 0, 0, 0])  
         #err_vector = np.array([0, 0, 0, 0, 0, 0])  
     elif last_key_pressed == 'g':
         goincircle = not goincircle
     elif last_key_pressed == 'c':
-        f = np.array([0, 0, 0, 0, 0, 0])
+        force_pull_position = ee_position_desired_old.copy()
+    elif last_key_pressed == 'i':
+        f_add += np.array([0, 0, 0, 0, 0, force])
+        #err_vector = np.array([0, 0, v, 0, 0, 0])
+    elif last_key_pressed == 'k':
+        f_add += np.array([0, 0, 0, 0, 0, -force])
+        #err_vector = np.array([0, 0, -v, 0, 0, 0])
+    elif last_key_pressed == 'j':
+        f_add += np.array([0, 0, 0, 0, force, 0])
+        #err_vector = np.array([0, v, 0, 0, 0, 0])
+    elif last_key_pressed == 'l':
+        f_add += np.array([0, 0, 0, 0, -force, 0])  
+        #err_vector = np.array([0, -v, 0, 0, 0, 0])
+    elif last_key_pressed == 'u':
+        f_add += np.array([0, 0, 0, 0, 0, force])  
+        #err_vector = np.array([0, 0, 0, 0, 0, 0])   
+    elif last_key_pressed == 'o':
+        f_add += np.array([0, 0, 0, 0, 0, -force])  
+        #err_vector = np.array([0, 0, 0, 0, 0, 0]) 
+    
 
     if(goincircle): 
         degrees_per_second = 30
@@ -137,6 +146,18 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
         ee_position_desired = ee_position_desired_old
         vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         #f = np.array([0, 0, 0, 0, 0, 0])
+
+    translation = force_pull_position[:3]
+    rotation = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    vis_pos = pin.SE3(rotation, translation)
+
+    robot.visualizer_manager.sendCommand({"Mgoal": vis_pos})
+    
+    K_s = 100
+    f = -K_s * (ee_position - force_pull_position)
+
+    f += f_add
+
     last_key_pressed = ''  # reset the key
     err_vector = admittance_control(robot, J)
     
@@ -215,7 +236,6 @@ def admittance_control(robot, J):
     vel_ref = p_dot_reference - K_p@(ee_position - p_reference)
     
     return vel_ref
-
 
 
 def key_listener():
