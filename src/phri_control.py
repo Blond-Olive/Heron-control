@@ -162,16 +162,17 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     err_vector = admittance_control(robot, J)
     base_pos = q[:3]
     # Only use translation part for move_towards
-    new_base_pos = move_towards(base_pos, ee_position[:3], 100, dt=robot.dt)
-    base_error = new_base_pos - base_pos
-    err_vector_base = np.zeros(6)
-    err_vector_base[:3] = base_error
+    new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
+    base_vel = np.zeros(6)
+    base_vel[:3] = new_base_vel
     # print(J)
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
     #print(robot.q)
-    v_cmd_base = base_only_ik(1e-3, q, J, err_vector_base, robot)
+    v_cmd= np.zeros(robot.nv)
+    v_cmd_base = base_only_ik(1e-3, q, J, base_vel, robot)
     v_cmd = manipulator_only_ik(1e-3, q, J, err_vector, robot)
+    #v_cmd = simple_ik(1e-3, q, J, err_vector, robot)
     v_cmd[:3] = v_cmd_base[:3]  
 
     robot.sendVelocityCommand(v_cmd)
@@ -196,13 +197,14 @@ def simple_ik(
 
 def base_only_ik(tikhonov_damp, q, J, err_vector, robot):
     # Use only the base columns (assume first 3 are base)
-    J_base = J[:, :3]
-    # Damped pseudoinverse for base
-    J_base_pinv = J_base.T @ np.linalg.inv(J_base @ J_base.T + np.eye(J_base.shape[0]) * tikhonov_damp)
-    v_base = J_base_pinv @ err_vector
-    # Compose full velocity command: base velocities, zeros for arm
-    v_cmd = np.concatenate([v_base, np.zeros(J.shape[1] - 3)])
-    return v_cmd
+    # Remove the second column if needed (as in the original)
+    J = np.delete(J, 1, axis=1)
+    J_pseudo_inv = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
+    qd_task = J_pseudo_inv @ err_vector
+    # Re-insert the removed DoF as zero
+    qd = np.insert(qd_task, 1, 0.0)
+    qd[3:]=0 # reinsert the removed DoF as zero
+    return qd
 
 def manipulator_only_ik(tikhonov_damp, q, J, err_vector, robot):
     # Assume base is first 3 DoFs, manipulator is the rest
@@ -266,15 +268,19 @@ def getKeyInputs():
 def move_towards(p, target, k, dt):
     direction = target - p
     dist = np.linalg.norm(direction)
-    if dist < 1:  # already there
-        return target
+    if dist < 5e-1:  # too close
+        return -direction*k  # 
+    elif dist < 8e-1:  # already there
+        return np.zeros(3)
     step = k * dt  # don’t overshoot
-    return step
+    return direction*k
 
 
 
 """
 Questions for Yiannis:
+
+Second column take away and bring back in J?
 
 v_cmd = [base narrow dir, nothing, <base rot anti-clickwise>, joint 1, joint 2, joint 3 (middle), joint 4, joint 5, joint 6]
 
