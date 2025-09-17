@@ -170,7 +170,6 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
     #print(robot.q)
-    ee_position_old = ee_position.copy()
     v_cmd_base = base_only_ik(1e-3, q, J, err_vector_base, robot)
     v_cmd = manipulator_only_ik(1e-3, q, J, err_vector, robot)
     v_cmd[:3] = v_cmd_base[:3]  
