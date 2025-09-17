@@ -170,7 +170,6 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
     #print(robot.q)
-    ee_position_old = ee_position.copy()
     v_cmd_base = base_only_ik(1e-3, q, J, err_vector_base, robot)
     v_cmd = manipulator_only_ik(1e-3, q, J, err_vector, robot)
     v_cmd[:3] = v_cmd_base[:3]  
@@ -269,7 +268,7 @@ def move_towards(p, target, speed, dt):
     p, target = np.array(p, float), np.array(target, float)
     direction = target - p
     dist = np.linalg.norm(direction)
-    if dist < 2e-3:  # already there
+    if dist < 1:  # already there
         return target
     step = min(speed * dt, dist)  # don’t overshoot
     return p + (direction / dist) * step
