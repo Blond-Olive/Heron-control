@@ -127,7 +127,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
         f_add += np.array([0, 0, 0, 0, -force, 0])  
         #err_vector = np.array([0, -v, 0, 0, 0, 0])
     elif last_key_pressed == 'u':
-        f_add += np.array([0, 0, 0, 0, 0, force])  
+        f_add += np.array([0, 0, 0, 0, 0, force])
         #err_vector = np.array([0, 0, 0, 0, 0, 0])   
     elif last_key_pressed == 'o':
         f_add += np.array([0, 0, 0, 0, 0, -force])  
@@ -162,7 +162,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     err_vector = admittance_control(robot, J)
     base_pos = q[:3]
     # Only use translation part for move_towards
-    new_base_pos = move_towards(base_pos, ee_position[:3], speed=1, dt=robot.dt)
+    new_base_pos = move_towards(base_pos, ee_position[:3], 100, dt=robot.dt)
     base_error = new_base_pos - base_pos
     err_vector_base = np.zeros(6)
     err_vector_base[:3] = base_error
@@ -215,7 +215,6 @@ def manipulator_only_ik(tikhonov_damp, q, J, err_vector, robot):
     v_cmd = np.concatenate([np.zeros(3), v_manip])
     return v_cmd
 
-
 def admittance_control(robot, J):
     
     """
@@ -265,14 +264,13 @@ def getKeyInputs():
     listener_thread = threading.Thread(target=key_listener, daemon=True)
     listener_thread.start()
 
-def move_towards(p, target, speed, dt):
-    p, target = np.array(p, float), np.array(target, float)
+def move_towards(p, target, k, dt):
     direction = target - p
     dist = np.linalg.norm(direction)
-    if dist < 2e-3:  # already there
+    if dist < 1:  # already there
         return target
-    step = min(speed * dt, dist)  # don’t overshoot
-    return p + (direction / dist) * step
+    step = k * dt  # don’t overshoot
+    return step
 
 
 
