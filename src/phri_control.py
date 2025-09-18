@@ -86,28 +86,29 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
     force = 10
+    spring_delta_postion = 0.1
     if last_key_pressed == 'w':
-        force_pull_position += np.array([0.0, 0.0, 0.1, 0.0, 0.0, 0.0])
+        force_pull_position += np.array([0.0, 0.0, spring_delta_postion, 0.0, 0.0, 0.0])
         #f += np.array([0, 0, force, 0, 0, 0])
         #err_vector = np.array([0, 0, v, 0, 0, 0])
     elif last_key_pressed == 's':
-        force_pull_position -= np.array([0.0, 0.0, 0.1, 0.0, 0.0, 0.0])
+        force_pull_position -= np.array([0.0, 0.0, spring_delta_postion, 0.0, 0.0, 0.0])
         #f += np.array([0, 0, -force, 0, 0, 0])
         #err_vector = np.array([0, 0, -v, 0, 0, 0])
     elif last_key_pressed == 'a':
-        force_pull_position += np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0])
+        force_pull_position += np.array([0.0, spring_delta_postion, 0.0, 0.0, 0.0, 0.0])
         #f += np.array([0, force, 0, 0, 0, 0])
         #err_vector = np.array([0, v, 0, 0, 0, 0])
     elif last_key_pressed == 'd':
-        force_pull_position -= np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0])
+        force_pull_position -= np.array([0.0, spring_delta_postion, 0.0, 0.0, 0.0, 0.0])
         #f += np.array([0, -force, 0, 0, 0, 0])  
         #err_vector = np.array([0, -v, 0, 0, 0, 0])
     elif last_key_pressed == 'q':
-        force_pull_position += np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
+        force_pull_position += np.array([spring_delta_postion, 0.0, 0.0, 0.0, 0.0, 0.0])
         #f += np.array([force, 0, 0, 0, 0, 0])  
         #err_vector = np.array([0, 0, 0, 0, 0, 0])   
     elif last_key_pressed == 'e':
-        force_pull_position -= np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
+        force_pull_position -= np.array([spring_delta_postion, 0.0, 0.0, 0.0, 0.0, 0.0])
         #f += np.array([-force, 0, 0, 0, 0, 0])  
         #err_vector = np.array([0, 0, 0, 0, 0, 0])  
     elif last_key_pressed == 'g':
@@ -173,7 +174,19 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     v_cmd_base = base_only_ik(1e-3, q, J, base_vel, robot)
     v_cmd = manipulator_only_ik(1e-3, q, J, err_vector, robot)
     #v_cmd = simple_ik(1e-3, q, J, err_vector, robot)
-    v_cmd[:3] = v_cmd_base[:3]  
+    v_cmd[:3] = v_cmd_base[:3]
+    if np.linalg.norm(f) > 0.1 and np.linalg.norm([force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0])]) > 0.1:
+        #goal_angle = -np.arctan2(f[1], f[0])
+        goal_angle = -np.arctan2(force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0]))
+        current_angle = np.arctan2(q[3], q[2])
+        if goal_angle - current_angle > np.pi/2:
+            goal_angle -= np.pi
+        elif goal_angle - current_angle < -np.pi/2:
+            goal_angle += np.pi
+        angle_command = 0.5*(goal_angle - current_angle)
+        v_cmd[2] = angle_command
+        v_cmd[3] -= angle_command
+
 
     robot.sendVelocityCommand(v_cmd)
 
@@ -268,9 +281,9 @@ def getKeyInputs():
 def move_towards(p, target, k, dt):
     direction = target - p
     dist = np.linalg.norm(direction)
-    if dist < 5e-1:  # too close
+    if dist < 6e-1:  # too close
         return -direction*k  # 
-    elif dist < 8e-1:  # already there
+    elif dist < 9e-1:  # already there
         return np.zeros(3)
     step = k * dt  # don’t overshoot
     return direction*k
