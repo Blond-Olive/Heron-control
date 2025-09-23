@@ -26,6 +26,9 @@ t = 0
 goincircle = False
 f_add = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
+obstacle_pos_x = -3.5
+obstacle_pos_y = -1.3
+
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
     """
@@ -148,7 +151,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
         vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         #f = np.array([0, 0, 0, 0, 0, 0])
 
-    translation = force_pull_position[:3]
+    translation = np.array([obstacle_pos_x, obstacle_pos_y, 0]) #force_pull_position[:3]
     rotation = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     vis_pos = pin.SE3(rotation, translation)
 
@@ -239,7 +242,6 @@ def ik_with_nullspace(
     J,
     err_vector,
     robot,
-    dt: float = 0.01,  # controller cycle time [s]
 ):
 
     J = np.delete(J, 1, axis=1)
@@ -247,19 +249,20 @@ def ik_with_nullspace(
     qd_task = J_pseudo @ err_vector  # primary task velocity
 
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
-    z2 = sec_objective_rotate_base(q,dt)
+    z2 = sec_objective_rotate_base(q,robot, qd_task)
+    z3 = sec_objective_obstacle_avoidance(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1 + z2)
+    qd_null = N @ (z1 + z2 + z3)
     qd = np.insert(qd_task + qd_null, 1, 0.0)  # re‑insert the removed DoF
     return qd
 
 
-def sec_objective_rotate_base(q,dt,
+def sec_objective_rotate_base(q,robot, qd_task,
                             Kp_theta: float = 1.0,  # proportional gain for theta
-                            Ki_theta: float = 0.1,  # integral gain for theta
+                            Ki_theta: float = 0.05,  # integral gain for theta
                             integral_limit: float = np.pi):  # anti‑wind‑up saturation)
     z2 = np.zeros(8)
 
@@ -267,6 +270,10 @@ def sec_objective_rotate_base(q,dt,
     global ee_position_desired_old, force_pull_position
     dir_force = np.array([force_pull_position[0] - ee_position_desired_old[0], force_pull_position[1] - ee_position_desired_old[1]])
     dir_base = np.array([q[2], q[3]])
+
+    T_w_e = robot.computeT_w_e(robot.q)
+    distance_vee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
+    dir_vee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
 
     def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
         """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
@@ -284,13 +291,19 @@ def sec_objective_rotate_base(q,dt,
             angle += np.pi
         return angle
 
-    theta_err = angle_between_vectors(dir_force, dir_base)
+
+    weight_vee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_vee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
+    weight_force = 1.0 - weight_vee
+
+    theta_err_force = angle_between_vectors(dir_force, dir_base)
+    theta_err_vee = angle_between_vectors(dir_vee, dir_base)
+    theta_err = weight_force * theta_err_force + weight_vee * theta_err_vee
 
     # --------------------- theta integral control -------------------- #
     # Persistent (static) accumulator stored on the function object
     if not hasattr(sec_objective_rotate_base, "_theta_int"):
         sec_objective_rotate_base._theta_int = 0.0
-    sec_objective_rotate_base._theta_int += theta_err * dt
+    sec_objective_rotate_base._theta_int += theta_err * robot.dt
     # anti‑wind‑up clamping
     sec_objective_rotate_base._theta_int = np.clip(
         sec_objective_rotate_base._theta_int, -integral_limit, integral_limit
@@ -302,7 +315,7 @@ def sec_objective_rotate_base(q,dt,
     return z2
 
 def sec_objective_base_distance_to_ee(q, robot, J,
-                            d_target: float = 0.7,  # desired base‑EE distance [m]
+                            d_target: float = 0.5,  # desired base‑EE distance [m]
                             Kp_d: float = 20.0):  # proportional gain for distance
     
     (x_base, y_base, theta_base) = (q[0], q[1], np.arctan2(q[3], q[2]))
@@ -319,6 +332,37 @@ def sec_objective_base_distance_to_ee(q, robot, J,
     Jd = (dx * (Jx - Jbx) + dy * (Jy - Jby)) / d_current
     z1 = -Kp_d * Jd.T * (d_current - d_target)
     return z1
+
+def sec_objective_obstacle_avoidance(q, robot, J,
+                                     Kp_d = 2.5, # proportional gain for distance
+                                     Kp_r = 1.0, # proportional gain for rotation
+                                     distance_threshold = 0.7):  # distance threshold to start avoiding [m]
+    global obstacle_pos_x, obstacle_pos_y
+    
+    (x_base, y_base) = (q[0], q[1])
+    
+    distance = np.hypot(x_base - obstacle_pos_x, y_base - obstacle_pos_y)
+    if distance > distance_threshold:
+        return np.zeros(8)
+    
+    # Repulsive velocity away from the obstacle
+    dx, dy = x_base - obstacle_pos_x, y_base - obstacle_pos_y
+    Jx, Jy = J[0, :], J[1, :]
+    Jbx, Jby = np.zeros_like(Jx), np.zeros_like(Jy)
+    Jbx[0], Jby[0] = q[2], q[3]
+    Jd = (dx * Jbx + dy * Jby) 
+    z = Kp_d * Jd.T / (distance**2)
+
+    # Rotate base away from obstacle
+    angle_to_obstacle = np.arctan2(dy, dx)
+    base_heading = np.arctan2(q[3], q[2])
+    angle_diff = (angle_to_obstacle - base_heading + np.pi) % (2.0 * np.pi) - np.pi
+    if angle_diff > 0:
+        z[1] -= Kp_r / distance # turn left
+    else:
+        z[1] += Kp_r / distance  # turn right   
+
+    return z
 
 
 def admittance_control(robot, J):
