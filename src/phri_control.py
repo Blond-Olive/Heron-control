@@ -272,8 +272,8 @@ def sec_objective_rotate_base(q,robot, qd_task,
     dir_base = np.array([q[2], q[3]])
 
     T_w_e = robot.computeT_w_e(robot.q)
-    distance_vee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
-    dir_vee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
+    distance_ee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
+    dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
 
     def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
         """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
@@ -292,12 +292,12 @@ def sec_objective_rotate_base(q,robot, qd_task,
         return angle
 
 
-    weight_vee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_vee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
-    weight_force = 1.0 - weight_vee
+    weight_ee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_ee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
+    weight_force = 1.0 - weight_ee
 
     theta_err_force = angle_between_vectors(dir_force, dir_base)
-    theta_err_vee = angle_between_vectors(dir_vee, dir_base)
-    theta_err = weight_force * theta_err_force + weight_vee * theta_err_vee
+    theta_err_vee = angle_between_vectors(dir_ee, dir_base)
+    theta_err = weight_force * theta_err_force + weight_ee * theta_err_vee
 
     # --------------------- theta integral control -------------------- #
     # Persistent (static) accumulator stored on the function object
