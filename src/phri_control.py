@@ -183,6 +183,8 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
             goal_angle -= np.pi
         elif goal_angle - current_angle < -np.pi/2:
             goal_angle += np.pi
+        if Obstacle_check(ee_position[:2], force_pull_position[:2], robot) != np.zeros(2) & np.dot(Obstacle_check(ee_position[:2], force_pull_position[:2], robot), q[2:4])>0:
+            pass
         angle_command = 0.5*(goal_angle - current_angle)
         v_cmd[2] = angle_command
         v_cmd[3] -= angle_command
@@ -285,10 +287,19 @@ def move_towards(p, target, k, dt):
         return -direction*k  # 
     elif dist < 9e-1:  # already there
         return np.zeros(3)
-    step = k * dt  # don’t overshoot
+    if np.linalg.norm(direction)>1:
+        direction = direction / np.linalg.norm(direction)  # normalize
+    
     return direction*k
 
-
+def Obstacle_check(p,target,robot):
+    Obs_position = np.array([0.0, 0.0])
+    Obs_radius = 0.65
+    Obs_direction = Obs_position - p
+    Obs_dist = np.linalg.norm(Obs_direction)
+    if Obs_dist < Obs_radius + 0.2: # too close
+        return Obs_direction/np.linalg.norm(Obs_direction)
+    else: return np.zeros(2)
 
 """
 Questions for Yiannis:
