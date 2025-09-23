@@ -160,21 +160,25 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     f += f_add
 
     last_key_pressed = ''  # reset the key
-    err_vector = admittance_control(robot, J)
-    base_pos = q[:3]
+    vel_ref = admittance_control(robot, J)
+    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
+    #base_pos = q[:3]
     # Only use translation part for move_towards
-    new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
-    base_vel = np.zeros(6)
-    base_vel[:3] = new_base_vel
+    #new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
+    #base_vel = np.zeros(6)
+    #base_vel[:3] = new_base_vel
     # print(J)
     # delete the second columm of Jacobian matrix, cuz y_dot is always 0
     # J[:, 1] = 1e-6
     #print(robot.q)
-    v_cmd= np.zeros(robot.nv)
-    v_cmd_base = base_only_ik(1e-3, q, J, base_vel, robot)
-    v_cmd = manipulator_only_ik(1e-3, q, J, err_vector, robot)
-    #v_cmd = simple_ik(1e-3, q, J, err_vector, robot)
-    v_cmd[:3] = v_cmd_base[:3]
+    #v_cmd= np.zeros(robot.nv)
+    #v_cmd_base = base_only_ik(1e-3, q, J, base_vel, robot)
+    #v_cmd = manipulator_only_ik(1e-3, q, J, vel_ref, robot)
+    #v_cmd = simple_ik(1e-3, q, J, vel_ref, robot)
+    #v_cmd[:3] = v_cmd_base[:3]
+
+
+    """
     if np.linalg.norm(f) > 0.1 and np.linalg.norm([force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0])]) > 0.1:
         #goal_angle = -np.arctan2(f[1], f[0])
         goal_angle = -np.arctan2(force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0]))
@@ -187,7 +191,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
             pass
         angle_command = 0.5*(goal_angle - current_angle)
         v_cmd[2] = angle_command
-        v_cmd[3] -= angle_command
+        v_cmd[3] -= angle_command"""
 
 
     robot.sendVelocityCommand(v_cmd)
@@ -230,6 +234,94 @@ def manipulator_only_ik(tikhonov_damp, q, J, err_vector, robot):
     # Compose full velocity command: zeros for base, manipulator velocities
     v_cmd = np.concatenate([np.zeros(3), v_manip])
     return v_cmd
+
+def ik_with_nullspace(
+    tikhonov_damp,
+    q,
+    J,
+    err_vector,
+    robot,
+    dt: float = 0.01,  # controller cycle time [s]
+):
+
+    J = np.delete(J, 1, axis=1)
+    J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
+    qd_task = J_pseudo @ err_vector  # primary task velocity
+
+    z1 = sec_objective_base_distance_to_ee(q, robot, J)
+    z2 = sec_objective_rotate_base(q,dt)
+
+    I = np.eye(J.shape[1])
+    N = I - J_pseudo @ J  # null‑space projector
+
+    qd_null = N @ (z1 + z2)
+    qd = np.insert(qd_task + qd_null, 1, 0.0)  # re‑insert the removed DoF
+    return qd
+
+
+def sec_objective_rotate_base(q,dt,
+                            Kp_theta: float = 1.0,  # proportional gain for theta
+                            Ki_theta: float = 0.1,  # integral gain for theta
+                            integral_limit: float = np.pi):  # anti‑wind‑up saturation)
+    z2 = np.zeros(8)
+
+    # EE velocity direction and base heading direction
+    global ee_position_desired_old, force_pull_position
+    dir_force = np.array([force_pull_position[0] - ee_position_desired_old[0], force_pull_position[1] - ee_position_desired_old[1]])
+    dir_base = np.array([q[2], q[3]])
+
+    def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
+        """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
+        if np.linalg.norm(a) < 1e-6 or np.linalg.norm(b) < 1e-6:
+            #print("Warning: zero-length vector in angle calculation")
+            return 0.0
+        a_n = a / np.linalg.norm(a)
+        b_n = b / np.linalg.norm(b)
+        theta_a, theta_b = np.arctan2(a_n[1], a_n[0]), np.arctan2(b_n[1], b_n[0])
+        angle = (theta_a - theta_b + np.pi) % (2.0 * np.pi) - np.pi
+        # fold >90° to keep the control gentle
+        if angle > np.pi / 2:
+            angle -= np.pi
+        if angle < -np.pi / 2:
+            angle += np.pi
+        return angle
+
+    theta_err = angle_between_vectors(dir_force, dir_base)
+
+    # --------------------- theta integral control -------------------- #
+    # Persistent (static) accumulator stored on the function object
+    if not hasattr(sec_objective_rotate_base, "_theta_int"):
+        sec_objective_rotate_base._theta_int = 0.0
+    sec_objective_rotate_base._theta_int += theta_err * dt
+    # anti‑wind‑up clamping
+    sec_objective_rotate_base._theta_int = np.clip(
+        sec_objective_rotate_base._theta_int, -integral_limit, integral_limit
+    )
+
+    # Proportional + integral term for theta control
+    v_rot = Kp_theta * theta_err + Ki_theta * sec_objective_rotate_base._theta_int
+    z2[1] = v_rot
+    return z2
+
+def sec_objective_base_distance_to_ee(q, robot, J,
+                            d_target: float = 0.7,  # desired base‑EE distance [m]
+                            Kp_d: float = 20.0):  # proportional gain for distance
+    
+    (x_base, y_base, theta_base) = (q[0], q[1], np.arctan2(q[3], q[2]))
+    T_w_e = robot.T_w_e
+    (x_ee, y_ee) = (T_w_e.translation[0], T_w_e.translation[1])
+
+    d_target = robot.base2ee  # desired base‑EE distance
+    dx, dy = x_ee - x_base, y_ee - y_base
+    d_current = np.hypot(dx, dy)
+    
+    Jx, Jy = J[0, :], J[1, :]
+    Jbx, Jby = np.zeros_like(Jx), np.zeros_like(Jx)
+    Jbx[0], Jby[0] = q[2], q[3]
+    Jd = (dx * (Jx - Jbx) + dy * (Jy - Jby)) / d_current
+    z1 = -Kp_d * Jd.T * (d_current - d_target)
+    return z1
+
 
 def admittance_control(robot, J):
     
