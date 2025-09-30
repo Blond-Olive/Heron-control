@@ -24,6 +24,12 @@ def get_args() -> argparse.Namespace:
         default=False,
         help="if true, the target pose is randomly generated, if false you type it target translation in via text input",
     )
+    parser.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="if true, the program waits for a debugger to attach",
+    )
     args = parser.parse_args()
     return args
 
@@ -69,6 +75,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 if __name__ == "__main__":
 
     args = get_args()
+    print(args)
     if args.debug:
         print("Waiting for debugger attach. Go to VSCode and do Run>Start debugging")
         debugpy.listen(5678)  # 5678 is the default debug port

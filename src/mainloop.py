@@ -2,12 +2,8 @@ from smc import getMinimalArgParser, getRobotFromArgs
 from smc.util.define_random_goal import getRandomlyGeneratedGoal
 from smc.control.cartesian_space import getClikArgs
 from smc.robots.utils import defineGoalPointCLI
-from smc.control.cartesian_space.cartesian_space_point_to_point import (
-    moveL_only_arm,
-    park_base,
-    move_u_ref
-    )
 from phri_control import move
+from startup_control import (moveL_only_arm, park_base)
 import sys
 import argparse
 import numpy as np
@@ -140,6 +136,12 @@ def get_args() -> argparse.Namespace:
         default=False,
         help="if true, the target pose is randomly generated, if false you type it target translation in via text input",
     )
+    parser.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="if true, the program waits for a debugger to attach",
+    )
     args = parser.parse_args()
     return args
 
@@ -186,7 +188,6 @@ if __name__ == "__main__":
     Adaptive_controller = Adaptive_controller_manager(robot)
     park_base(args, robot, parking_lot)
     moveL_only_arm(args, robot, handle_pose)
-    print('moveL done')
     Adaptive_controller.update_time()
     move(args, robot)
 
