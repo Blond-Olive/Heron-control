@@ -123,7 +123,7 @@ class Adaptive_controller_manager:
             "k_oe_history": np.array(self.k_history),
             "v_ref_history": np.array(self.v_ref_history)
         })
-        print(f"Data are saved in {filename}")
+        #print(f"Data are saved in {filename}")
         
 def get_args() -> argparse.Namespace:
     parser = getMinimalArgParser()
