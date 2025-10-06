@@ -185,10 +185,9 @@ if __name__ == "__main__":
         robot.visualizer_manager.sendCommand({"Mgoal": handle_pose})
     robot.angle_desired = -45
     # time.sleep(5)
-    Adaptive_controller = Adaptive_controller_manager(robot)
     park_base(args, robot, parking_lot)
     moveL_only_arm(args, robot, handle_pose)
-    Adaptive_controller.update_time()
+    print("The robot is now ready to be controlled")
     move(args, robot)
 
     robot.closeGripper()

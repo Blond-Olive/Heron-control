@@ -1,0 +1,4 @@
+load("phri_log.mat")
+dt = 0.002
+time = 0:dt:(length(f) - 1)*dt
+plot(time, f)

@@ -10,6 +10,7 @@ import sys
 import termios
 import tty
 import threading
+import scipy.io as sio
 
 last_key_pressed = ''  # Global variable to store the last key pressed
 
@@ -28,6 +29,13 @@ f_add = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 obstacle_pos_x = -3.5
 obstacle_pos_y = -1.3
+
+logs = {
+    "qs": [],
+    "dqs": [],
+    "v_cmd": [],
+    "f": [],
+}
 
 def move(args: Namespace, robot: SingleArmInterface, run=True):
     # time.sleep(2)
@@ -69,7 +77,7 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     
 def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
-
+    controlLoopFunction.iteration = getattr(controlLoopFunction, 'iteration', 0) + 1
     global ee_position
     breakFlag = False
     log_item = {}
@@ -159,12 +167,25 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     
     K_s = 100
     f = -K_s * (ee_position - force_pull_position)
+    f += generateNoise(0.1, 6)
 
     f += f_add
 
     last_key_pressed = ''  # reset the key
     vel_ref = admittance_control(robot, J)
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
+
+    global logs
+    logs["qs"].append(q.copy())
+    logs["v_cmd"].append(v_cmd.copy())
+    logs["f"].append(f.copy())
+    if controlLoopFunction.iteration % 1000 == 0:
+        sio.savemat("phri_log.mat", {
+            "qs": np.array(logs["qs"]),
+            "v_cmd": np.array(logs["v_cmd"]),
+            "f": np.array(logs["f"]),
+        })
+        print("logs saved")
     #base_pos = q[:3]
     # Only use translation part for move_towards
     #new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
@@ -413,6 +434,9 @@ def key_listener():
 def getKeyInputs():
     listener_thread = threading.Thread(target=key_listener, daemon=True)
     listener_thread.start()
+
+def generateNoise(standard_Deviation, length):
+    return np.random.normal(0, standard_Deviation, length)
 
 def move_towards(p, target, k, dt):
     direction = target - p
