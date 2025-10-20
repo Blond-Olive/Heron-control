@@ -183,8 +183,11 @@ if __name__ == "__main__":
     robot.task = 2
     if args.visualizer:
         robot.visualizer_manager.sendCommand({"Mgoal": handle_pose})
+         #radius, [red, green , blue], 0.5 is one block
+        #robot.visualizer_manager.sendCommand({"obstacle_box": ([1.0, 1.0, 1.0], [0.5, 0.5, 0.2])}) #[red, green , blue], dimension, why can't we move the box?
     robot.angle_desired = -45
     # time.sleep(5)
+    robot.visualizer_manager.sendCommand({"obstacle_sphere": (0.1, [-3.5, -1.5, 0.0])})
     park_base(args, robot, parking_lot)
     moveL_only_arm(args, robot, handle_pose)
     print("The robot is now ready to be controlled")

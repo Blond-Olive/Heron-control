@@ -65,6 +65,7 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
         "err_norm": np.zeros(1),
     }
     save_past_dict = {}
+    args.max_iterations = 1000000  # effectively infinite
     loop_manager = ControlLoopManager(
         robot, controlLoop, args, save_past_dict, log_item
     )
@@ -92,7 +93,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
 
     
 
-    global last_key_pressed, cumulative_err, f, f_add, ee_position_desired, ee_position_desired_old, t, vel_desired, goincircle, force_pull_position
+    global last_key_pressed, cumulative_err, f, f_add, ee_position_desired, ee_position_desired_old, t, vel_desired, goincircle, force_pull_position, obstacle_pos_x, obstacle_pos_y
 
     T_w_e = robot.computeT_w_e(robot.q)
     ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
@@ -159,9 +160,12 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
         vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         #f = np.array([0, 0, 0, 0, 0, 0])
 
-    translation = np.array([obstacle_pos_x, obstacle_pos_y, 0]) #force_pull_position[:3]
+    translation = force_pull_position[:3] #np.array([obstacle_pos_x, obstacle_pos_y, 0]) 
     rotation = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     vis_pos = pin.SE3(rotation, translation)
+    obs_pos=[obstacle_pos_x, obstacle_pos_y, 0.0]
+
+    #robot.visualizer_manager.sendCommand({"obstacle_sphere": (0.5, [obstacle_pos_x, obstacle_pos_y, 0.0])}) #radius, [red, green , blue], 0.5 is one block
 
     robot.visualizer_manager.sendCommand({"Mgoal": vis_pos})
     
@@ -185,7 +189,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
             "v_cmd": np.array(logs["v_cmd"]),
             "f": np.array(logs["f"]),
         })
-        print("logs saved")
+        #print("logs saved")
     #base_pos = q[:3]
     # Only use translation part for move_towards
     #new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
