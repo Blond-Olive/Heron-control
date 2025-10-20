@@ -6,10 +6,10 @@ from smc.robots.interfaces.single_arm_interface import SingleArmInterface
 from smc.control.control_loop_manager import ControlLoopManager
 from scipy.spatial.transform import Rotation as R
 import os
+import threading
 import sys
 import termios
 import tty
-import threading
 import scipy.io as sio
 
 last_key_pressed = ''  # Global variable to store the last key pressed
@@ -25,7 +25,6 @@ K_p = np.diag([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
 
 t = 0
 goincircle = False
-f_add = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 obstacle_pos_x = -3.5
 obstacle_pos_y = -1.3
@@ -37,26 +36,27 @@ logs = {
     "f": [],
 }
 
-def move(args: Namespace, robot: SingleArmInterface, run=True):
+def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
     # time.sleep(2)
     """
     move
     -----
     come from moveL
     """
-    global ee_position_desired, ee_position_desired_old, force_pull_position
+    global getForceFunction
+    getForceFunction = getForce
+
+    global ee_position_desired
     
-    T_w_e = robot.computeT_w_e(robot.q)
-    ee_position_desired = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
-    ee_position_desired_old = ee_position_desired.copy()
-    force_pull_position = ee_position_desired.copy()
+    ee_position_desired = None
+    #ee_position_desired_old = ee_position_desired.copy()
 
     global x1, x2, vel_desired
     vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     x1 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) # pos reference - position desired = 0
     x2 = vel_desired
 
-    controlLoop = partial(controlLoopFunction, robot)
+    controlLoop = partial(controlLoopFunction, args, robot)
     # we're not using any past data or logging, hence the empty arguments
     log_item = {
         "qs": np.zeros(robot.nq),
@@ -68,20 +68,26 @@ def move(args: Namespace, robot: SingleArmInterface, run=True):
     loop_manager = ControlLoopManager(
         robot, controlLoop, args, save_past_dict, log_item
     )
-    getKeyInputs()
     if run:
         loop_manager.run()
         
     else:
         return loop_manager
     
-def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
+def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i):
 
     controlLoopFunction.iteration = getattr(controlLoopFunction, 'iteration', 0) + 1
+
     global ee_position
     breakFlag = False
     log_item = {}
     save_past_item = {}
+
+    if(controlLoopFunction.iteration < 100):
+        return breakFlag, save_past_item, log_item
+    if(controlLoopFunction.iteration == 100):
+        print("Starting control loop")
+
     q = robot.q
 
     v_max = np.pi/40
@@ -90,63 +96,39 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     robot.v_ee = v
     J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
 
-    
-
-    global last_key_pressed, cumulative_err, f, f_add, ee_position_desired, ee_position_desired_old, t, vel_desired, goincircle, force_pull_position
+    global last_key_pressed, cumulative_err, f, ee_position_desired, t, vel_desired, goincircle
 
     T_w_e = robot.computeT_w_e(robot.q)
-    ee_position = np.concatenate([T_w_e.translation, pin.log3(T_w_e.rotation)])
-    force = 10
-    spring_delta_postion = 0.1
-    if last_key_pressed == 'w':
-        force_pull_position += np.array([0.0, 0.0, spring_delta_postion, 0.0, 0.0, 0.0])
-        #f += np.array([0, 0, force, 0, 0, 0])
-        #err_vector = np.array([0, 0, v, 0, 0, 0])
-    elif last_key_pressed == 's':
-        force_pull_position -= np.array([0.0, 0.0, spring_delta_postion, 0.0, 0.0, 0.0])
-        #f += np.array([0, 0, -force, 0, 0, 0])
-        #err_vector = np.array([0, 0, -v, 0, 0, 0])
-    elif last_key_pressed == 'a':
-        force_pull_position += np.array([0.0, spring_delta_postion, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([0, force, 0, 0, 0, 0])
-        #err_vector = np.array([0, v, 0, 0, 0, 0])
-    elif last_key_pressed == 'd':
-        force_pull_position -= np.array([0.0, spring_delta_postion, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([0, -force, 0, 0, 0, 0])  
-        #err_vector = np.array([0, -v, 0, 0, 0, 0])
-    elif last_key_pressed == 'q':
-        force_pull_position += np.array([spring_delta_postion, 0.0, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([force, 0, 0, 0, 0, 0])  
-        #err_vector = np.array([0, 0, 0, 0, 0, 0])   
-    elif last_key_pressed == 'e':
-        force_pull_position -= np.array([spring_delta_postion, 0.0, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([-force, 0, 0, 0, 0, 0])  
-        #err_vector = np.array([0, 0, 0, 0, 0, 0])  
-    elif last_key_pressed == 'g':
-        goincircle = not goincircle
-    elif last_key_pressed == 'c':
-        force_pull_position = ee_position_desired_old.copy()
-    elif last_key_pressed == 'i':
-        f_add += np.array([0, 0, 0, 0, 0, force])
-        #err_vector = np.array([0, 0, v, 0, 0, 0])
-    elif last_key_pressed == 'k':
-        f_add += np.array([0, 0, 0, 0, 0, -force])
-        #err_vector = np.array([0, 0, -v, 0, 0, 0])
-    elif last_key_pressed == 'j':
-        f_add += np.array([0, 0, 0, 0, force, 0])
-        #err_vector = np.array([0, v, 0, 0, 0, 0])
-    elif last_key_pressed == 'l':
-        f_add += np.array([0, 0, 0, 0, -force, 0])  
-        #err_vector = np.array([0, -v, 0, 0, 0, 0])
-    elif last_key_pressed == 'u':
-        f_add += np.array([0, 0, 0, 0, 0, force])
-        #err_vector = np.array([0, 0, 0, 0, 0, 0])   
-    elif last_key_pressed == 'o':
-        f_add += np.array([0, 0, 0, 0, 0, -force])  
-        #err_vector = np.array([0, 0, 0, 0, 0, 0]) 
+    
+    # Store previous rotation vector for continuity checking
+    if not hasattr(controlLoopFunction, 'prev_rot_vec'):
+        controlLoopFunction.prev_rot_vec = pin.log3(T_w_e.rotation)
+
+    current_rot_vec = pin.log3(T_w_e.rotation)
+
+    # Check for discontinuity (sudden large change indicating sign flip)
+    if np.linalg.norm(current_rot_vec - controlLoopFunction.prev_rot_vec) > np.pi:
+        # Flip the sign to maintain continuity
+        current_rot_vec = -current_rot_vec
+        # Verify this actually improves continuity
+        if np.linalg.norm(current_rot_vec - controlLoopFunction.prev_rot_vec) < np.linalg.norm(-current_rot_vec - controlLoopFunction.prev_rot_vec):
+            # Keep the flipped version
+            pass
+        else:
+            # Revert to original
+            current_rot_vec = -current_rot_vec
+
+    controlLoopFunction.prev_rot_vec = current_rot_vec
+    ee_position = np.concatenate([T_w_e.translation, current_rot_vec])
+    
+    if(ee_position_desired is None):
+        ee_position_desired = ee_position.copy()
+        print("start ee_position_desired", ee_position_desired)
+        print("start ee_position", ee_position)
+        print("start Twe rot", T_w_e.rotation)
     
 
-    if(goincircle): 
+    """if(goincircle): 
         degrees_per_second = 30
         radius = 0.1
         inner = robot.dt*np.pi/180 *degrees_per_second
@@ -157,23 +139,45 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     else:
         ee_position_desired = ee_position_desired_old
         vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        #f = np.array([0, 0, 0, 0, 0, 0])
-
-    translation = np.array([obstacle_pos_x, obstacle_pos_y, 0]) #force_pull_position[:3]
-    rotation = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-    vis_pos = pin.SE3(rotation, translation)
-
-    robot.visualizer_manager.sendCommand({"Mgoal": vis_pos})
+        #f = np.array([0, 0, 0, 0, 0, 0])"""
     
-    K_s = 100
-    f = -K_s * (ee_position - force_pull_position)
-    f += generateNoise(0.1, 6)
+    #K_s = 100
 
-    f += f_add
+    f_local = getForceFunction()  # get the force from the robot or simulation
+
+    # transform wrench from end-effector (local) frame to world frame
+    R_w_e = T_w_e.rotation
+    force_world = R_w_e @ f_local[:3]
+    torque_world = R_w_e @ f_local[3:]
+    f = np.concatenate([force_world, torque_world])
+
+    #f += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
     last_key_pressed = ''  # reset the key
     vel_ref = admittance_control(robot, J)
-    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
+    
+    # Transform vel_ref from world frame to local frame for LOCAL Jacobian
+    T_w_e = robot.computeT_w_e(robot.q)
+    R_w_e = T_w_e.rotation
+    # rotate vel_ref by +90 degrees around world Z before converting to local frame
+    angle = np.pi / 2.0
+    c, s = np.cos(angle), np.sin(angle)
+    Rz = np.array([[c, -s, 0.0],
+                   [s,  c, 0.0],
+                   [0.0, 0.0, 1.0]])
+    vel_ref[:3] = Rz @ vel_ref[:3]
+    vel_ref[3:] = Rz @ vel_ref[3:]
+    vel_ref_local = np.zeros_like(vel_ref)
+    vel_ref_local[:3] = R_w_e.T @ vel_ref[:3]  # Transform linear velocity
+    vel_ref_local[3:] = R_w_e.T @ vel_ref[3:]  # Transform angular velocity
+    
+    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref_local, robot)
+
+    v_cmd = 0.5*v_cmd
+    if controlLoopFunction.iteration % 200 == 0:
+        print("q ", q)
+        #print("vel_ref ", vel_ref[:3])
+        
 
     global logs
     logs["qs"].append(q.copy())
@@ -185,36 +189,15 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
             "v_cmd": np.array(logs["v_cmd"]),
             "f": np.array(logs["f"]),
         })
-        print("logs saved")
-    #base_pos = q[:3]
-    # Only use translation part for move_towards
-    #new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
-    #base_vel = np.zeros(6)
-    #base_vel[:3] = new_base_vel
-    # print(J)
-    # delete the second columm of Jacobian matrix, cuz y_dot is always 0
-    # J[:, 1] = 1e-6
-    #print(robot.q)
-    #v_cmd= np.zeros(robot.nv)
-    #v_cmd_base = base_only_ik(1e-3, q, J, base_vel, robot)
-    #v_cmd = manipulator_only_ik(1e-3, q, J, vel_ref, robot)
-    #v_cmd = simple_ik(1e-3, q, J, vel_ref, robot)
-    #v_cmd[:3] = v_cmd_base[:3]
+
+    #if controlLoopFunction.iteration % 100 == 0:
+     #   print("p_reference ", p_reference)
+      #  print("ee_position ", ee_position)
 
 
-    """
-    if np.linalg.norm(f) > 0.1 and np.linalg.norm([force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0])]) > 0.1:
-        #goal_angle = -np.arctan2(f[1], f[0])
-        goal_angle = -np.arctan2(force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0]))
-        current_angle = np.arctan2(q[3], q[2])
-        if goal_angle - current_angle > np.pi/2:
-            goal_angle -= np.pi
-        elif goal_angle - current_angle < -np.pi/2:
-            goal_angle += np.pi
-        angle_command = 0.5*(goal_angle - current_angle)
-        v_cmd[2] = angle_command
-        v_cmd[3] -= angle_command"""
-
+    v_cmd[:3] = np.array([0.0, 0.0, 0.0])
+    #v_cmd[8] = 0.0
+    #v_cmd=np.array([0,0,0,0,0,0,0,0,0])
 
     robot.sendVelocityCommand(v_cmd)
 
@@ -264,20 +247,32 @@ def ik_with_nullspace(
     err_vector,
     robot,
 ):
+    # Remove any control of the base by zeroing the base columns of J.
+    # Convention in this code: base DoFs are the first 3 columns (indices 0,1,2).
+    # Make a copy so we don't mutate the caller's J unexpectedly.
+    J = J.copy()
+    n_cols = J.shape[1]
+    base_cols = [c for c in (0, 1, 2) if c < n_cols]
+    if base_cols:
+        J[:, base_cols] = 0.0
 
+    # (Optional) If you also want to remove any direct task-space coupling
+    # to base translational directions, you could zero the first 3 rows:
+    # if J.shape[0] >= 3:
+    #     J[0:3, :] = 0.0
     J = np.delete(J, 1, axis=1)
     J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
     qd_task = J_pseudo @ err_vector  # primary task velocity
 
-    z1 = sec_objective_base_distance_to_ee(q, robot, J)
-    z2 = sec_objective_rotate_base(q,robot, qd_task)
-    z3 = sec_objective_obstacle_avoidance(q, robot, J)
+    #z1 = sec_objective_base_distance_to_ee(q, robot, J)
+    #z2 = sec_objective_rotate_base(q,robot, qd_task)
+    #z3 = sec_objective_obstacle_avoidance(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1 + z2 + z3)
-    qd = np.insert(qd_task + qd_null, 1, 0.0)  # re‑insert the removed DoF
+    #qd_null = N @ (z1 + z2 + z3)
+    qd = np.insert(qd_task, 1, 0.0)#+ qd_null, 1, 0.0)  # re‑insert the removed DoF
     return qd
 
 
@@ -393,8 +388,6 @@ def admittance_control(robot, J):
     global ee_position_desired
     global ee_position
 
-    ee_position_error =  ee_position - ee_position_desired
-
     dt = robot.dt
     B =  pin.crba(robot.model, robot.data, robot.q)
     # B = B[:robot.model.nv, :robot.model.nv]
@@ -412,31 +405,11 @@ def admittance_control(robot, J):
     p_dot_reference = x2 + vel_desired
 
     vel_ref = p_dot_reference - K_p@(ee_position - p_reference)
+
+    #print("p_reference ", p_reference[:3])
+    #print("ee_position ", ee_position[:3])
     
     return vel_ref
-
-
-def key_listener():
-    global last_key_pressed
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        while True:
-            ch = sys.stdin.read(1)
-            if ch in ['w', 'a', 's', 'd', 'q', 'e', 'c','u','i','o','j','k','l', 'g']:
-                last_key_pressed = ch
-            elif ch == '\x03':  # Ctrl-C to exit
-                raise KeyboardInterrupt
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-def getKeyInputs():
-    listener_thread = threading.Thread(target=key_listener, daemon=True)
-    listener_thread.start()
-
-def generateNoise(standard_Deviation, length):
-    return np.random.normal(0, standard_Deviation, length)
 
 def move_towards(p, target, k, dt):
     direction = target - p
