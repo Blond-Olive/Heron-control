@@ -1,7 +1,10 @@
+import rclpy
+from rclpy.executors import MultiThreadedExecutor
 from smc import getMinimalArgParser, getRobotFromArgs
 from smc.control.cartesian_space import getClikArgs
 from smc.control.control_loop_manager import ControlLoopManager
 from smc.robots.interfaces.single_arm_interface import SingleArmInterface
+from smc.robots.implementations.heron_real import get_args, RealHeronRobotManagerNode
 from functools import partial
 import sys
 import argparse
@@ -13,7 +16,7 @@ import os
 
 import debugpy
 
-def get_args() -> argparse.Namespace:
+"""def get_args() -> argparse.Namespace:
     parser = getMinimalArgParser()
     parser.description = "Run closed loop inverse kinematics \
     of various kinds. Make sure you know what the goal is before you run!"
@@ -31,7 +34,7 @@ def get_args() -> argparse.Namespace:
         help="if true, the program waits for a debugger to attach",
     )
     args = parser.parse_args()
-    return args
+    return args"""
 
 def move(args, robot, run=True):
     """
@@ -63,35 +66,66 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     breakFlag = False
     log_item = {}
     save_past_item = {}
+    controlLoopFunction.counter+=1
 
     q = robot.q
     J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
     # Here you can implement any additional control logic if needed
-    v = 0.1
-    robot.sendVelocityCommand(np.array([0,0,0,0,0,0,0,0,v]))
+    
+    if controlLoopFunction.counter%1000==0:
+        controlLoopFunction.v=-controlLoopFunction.v
+    v=controlLoopFunction.v
+    # Send velocity command to the robot
+    robot.sendVelocityCommand(np.array([0,0,0,0,0,0,0,0,0]))
+
+    print(robot.q)
 
     return breakFlag, save_past_item, log_item
 
+controlLoopFunction.counter=0
+controlLoopFunction.v=0.05
+
+
 if __name__ == "__main__":
+    rclpy.init(args=None)
 
     args = get_args()
-    print(args)
-    if args.debug:
+    """if args.debug:
         print("Waiting for debugger attach. Go to VSCode and do Run>Start debugging")
         debugpy.listen(5678)  # 5678 is the default debug port
-        debugpy.wait_for_client()  # Program pauses here until VS Code attaches
+        debugpy.wait_for_client()  # Program pauses here until VS Code attaches"""
     args.robot = "heron"
+    args.publish_commands = True
+    args.sim = False
+    args.robot_ip = "192.168.0.4"
     # args.robot = "ur5e"
-    robot = getRobotFromArgs(args)
+    #robot = getRobotFromArgs(args)
+
     args.ik_solver = "keep_distance_nullspace"
     
-    args.real=False #----------------------------------------Change -------------------------------------
-    args.visualizer=True
+    args.real=True #----------------------------------------Change -------------------------------------
+    args.visualizer=False
     args.plotter = False
     args.max_v_percentage=0.2
+    
+
+    modes_and_loops = []
+    robot = RealHeronRobotManagerNode(args)
     robot.base2ee = 0.75
+    robot._mode = robot.control_mode.whole_body
+    robot._step()
+
+    loop = move(args, robot, run=False)
+    modes_and_loops.append((robot.control_mode.whole_body, loop))
+
+    # NOTE: at this point you pass the modes_and_loops list
+    robot.setModesAndLoops(modes_and_loops)
+
+    executor = MultiThreadedExecutor()
+    executor.add_node(robot)
+    executor.spin()
    
-    parking_lot = np.array([-1.5, -1.15, np.deg2rad(00)])
+    #parking_lot = np.array([-1.5, -1.15, np.deg2rad(00)])
     
     # define the gripper pose for grabbing the handle
     #offset = np.array([parking_lot[0], parking_lot[1], 0])
@@ -105,15 +139,16 @@ if __name__ == "__main__":
     #pre_handle_pose = pin.SE3(rotation, translation)
     # Mgoal = getRandomlyGeneratedGoal(args)
     #robot.handle_pose = handle_pose
-    robot.task = 2
     #if args.visualizer:
         #robot.visualizer_manager.sendCommand({"Mgoal": handle_pose})
-    robot.angle_desired = -45
+    #robot.angle_desired = -45
     # time.sleep(5)
     #park_base(args, robot, parking_lot)
     #moveL_only_arm(args, robot, handle_pose)
     #print('moveL done')
-    move(args, robot)
+    
+    
+    #move(args, robot)
 
     robot.closeGripper()
     robot.openGripper()
