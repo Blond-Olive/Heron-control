@@ -63,6 +63,7 @@ def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
         "err_norm": np.zeros(1),
     }
     save_past_dict = {}
+    args.max_iterations = 1000000  # effectively infinite
     loop_manager = ControlLoopManager(
         robot, controlLoop, args, save_past_dict, log_item
     )
@@ -94,7 +95,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     robot.v_ee = v
     J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
 
-    global cumulative_err, f, ee_position_desired, t, vel_desired, goincircle
+    global f, ee_position_desired, t, vel_desired, goincircle
 
     T_w_e = robot.computeT_w_e(robot.q)
     
@@ -127,6 +128,22 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     else:
         ee_position_desired = ee_position_desired_old
         vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        #f = np.array([0, 0, 0, 0, 0, 0])
+
+    translation = force_pull_position[:3] #np.array([obstacle_pos_x, obstacle_pos_y, 0]) 
+    rotation = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    vis_pos = pin.SE3(rotation, translation)
+    obs_pos=[obstacle_pos_x, obstacle_pos_y, 0.0]
+
+    #robot.visualizer_manager.sendCommand({"obstacle_sphere": (0.5, [obstacle_pos_x, obstacle_pos_y, 0.0])}) #radius, [red, green , blue], 0.5 is one block
+
+    robot.visualizer_manager.sendCommand({"Mgoal": vis_pos})
+    
+    K_s = 100
+    f = -K_s * (ee_position - force_pull_position)
+    f += generateNoise(0.1, 6)
+
+    f += f_add
         #f = np.array([0, 0, 0, 0, 0, 0])"""
     
     #K_s = 100
@@ -164,6 +181,36 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     v_cmd[:3] = np.array([0.0, 0.0, 0.0])
     #v_cmd[8] = 0.0
     #v_cmd=np.array([0,0,0,0,0,0,0,0,0])
+        #print("logs saved")
+    #base_pos = q[:3]
+    # Only use translation part for move_towards
+    #new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
+    #base_vel = np.zeros(6)
+    #base_vel[:3] = new_base_vel
+    # print(J)
+    # delete the second columm of Jacobian matrix, cuz y_dot is always 0
+    # J[:, 1] = 1e-6
+    #print(robot.q)
+    #v_cmd= np.zeros(robot.nv)
+    #v_cmd_base = base_only_ik(1e-3, q, J, base_vel, robot)
+    #v_cmd = manipulator_only_ik(1e-3, q, J, vel_ref, robot)
+    #v_cmd = simple_ik(1e-3, q, J, vel_ref, robot)
+    #v_cmd[:3] = v_cmd_base[:3]
+
+
+    """
+    if np.linalg.norm(f) > 0.1 and np.linalg.norm([force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0])]) > 0.1:
+        #goal_angle = -np.arctan2(f[1], f[0])
+        goal_angle = -np.arctan2(force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0]))
+        current_angle = np.arctan2(q[3], q[2])
+        if goal_angle - current_angle > np.pi/2:
+            goal_angle -= np.pi
+        elif goal_angle - current_angle < -np.pi/2:
+            goal_angle += np.pi
+        angle_command = 0.5*(goal_angle - current_angle)
+        v_cmd[2] = angle_command
+        v_cmd[3] -= angle_command"""
+
 
     robot.sendVelocityCommand(v_cmd)
 
