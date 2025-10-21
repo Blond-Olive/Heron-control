@@ -63,6 +63,7 @@ def getKeyInputs():
 def setForceFromKey(key):
     global f
     force = 10
+    torque = 1
     spring_delta_postion = 0.1
     """if key == 'w':
         force_pull_position += np.array([0.0, 0.0, spring_delta_postion, 0.0, 0.0, 0.0])
@@ -103,17 +104,17 @@ def setForceFromKey(key):
     elif key == 's':
         f += np.array([0, 0, -force, 0, 0, 0])  
     elif key == 'i':
-        f += np.array([0, 0, 0, 0, 0, force])
+        f += np.array([0, 0, 0, 0, 0, torque])
     elif key == 'k':
-        f += np.array([0, 0, 0, 0, 0, -force])
+        f += np.array([0, 0, 0, 0, 0, -torque])
     elif key == 'j':
-        f += np.array([0, 0, 0, 0, force, 0])
+        f += np.array([0, 0, 0, 0, torque, 0])
     elif key == 'l':
-        f += np.array([0, 0, 0, 0, -force, 0])  
+        f += np.array([0, 0, 0, 0, -torque, 0])  
     elif key == 'u':
-        f += np.array([0, 0, 0, 0, force, 0])
+        f += np.array([0, 0, 0, torque, 0, 0])
     elif key == 'o':
-        f += np.array([0, 0, 0, 0, -force, 0])  
+        f += np.array([0, 0, 0, -torque, 0, 0])
     
     print("Current force command: ", f)
 

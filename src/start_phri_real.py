@@ -4,6 +4,7 @@ from smc.robots.implementations.heron_real import get_args, RealHeronRobotManage
 from phri_control import move
 from functools import partial
 import numpy as np
+import sys
 
 if __name__ == "__main__":
     rclpy.init(args=None)
@@ -33,7 +34,16 @@ if __name__ == "__main__":
     robot._step()
 
     def getForce(robot):
-        return robot.wrench
+        raw_wrench = robot.wrench
+        # Correct the coordinate frame: sensor Y maps to robot Z, sensor Z maps to robot -Y
+        corrected_wrench = np.zeros_like(raw_wrench)
+        corrected_wrench[0] = raw_wrench[0]  # X unchanged
+        corrected_wrench[1] = raw_wrench[2]  # Y = -sensor_Z
+        corrected_wrench[2] = -raw_wrench[1]   # Z = sensor_Y
+        corrected_wrench[3] = raw_wrench[3]   # Torque X unchanged
+        corrected_wrench[4] = raw_wrench[5]  # Torque Y = -sensor_torque_Z
+        corrected_wrench[5] = -raw_wrench[4]   # Torque Z = sensor_torque_Y
+        return corrected_wrench
 
     getForceFunction = partial(getForce, robot)
     loop = move(args, robot, getForceFunction, run=False)

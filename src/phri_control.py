@@ -15,14 +15,14 @@ import scipy.io as sio
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 
-D = np.diag([100, 100, 100, 1, 1, 0.2]) # last three creates stationary error
-K = np.diag([150, 150, 150, 100, 100, 10])
-f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+D = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
+K = np.diag([100, 100, 100, 30, 30, 30])
 
-K_p = np.diag([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
 
 t = 0
 goincircle = False
+movable_mode = True  # Flag: True = movable mode, False = spring mode (return to desired position)
 
 obstacle_pos_x = -3.5
 obstacle_pos_y = -1.3
@@ -148,18 +148,23 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     
     #K_s = 100
 
-    f_local = getForceFunction()  # get the force from the robot or simulation
+    f = getForceFunction()  # get the force from the robot or simulation
     # Keep force in local frame for end-effector frame admittance control
     
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
-    vel_ref = admittance_control(robot, J, f_local)
+    vel_ref = admittance_control(robot, J, f)
     
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
-    #if controlLoopFunction.iteration % 200 == 0:
-        #print("q ", q)
-        #print("vel_ref ", vel_ref[:3])
+    """if controlLoopFunction.iteration % 200 == 0:
+        if np.abs(f[0]) > 5:
+            print("pushing in x-direction (red)")
+        if np.abs(f[1]) > 5:
+            print("pushing in y-direction (green)")
+        if np.abs(f[2]) > 5:
+            print("pushing in z-direction (blue)")
+        #print("vel_ref ", vel_ref[:3])"""
         
 
     global logs
@@ -174,8 +179,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
         })
 
     #if controlLoopFunction.iteration % 100 == 0:
-     #   print("p_reference ", p_reference)
-      #  print("ee_position ", ee_position)
+        #print("x1 ", x1)
 
 
     v_cmd[:3] = np.array([0.0, 0.0, 0.0])
@@ -398,9 +402,13 @@ def admittance_control(robot, J, f_local):
     
     """
     Admittance control in end-effector frame
+    Supports two modes:
+    - Spring mode (movable_mode=False): Returns to ee_position_desired like a spring
+    - Movable mode (movable_mode=True): Stays where moved by forces, no return spring
     """
     global ee_position_desired
     global ee_position
+    global movable_mode
 
     dt = robot.dt
     B =  pin.crba(robot.model, robot.data, robot.q)
@@ -413,18 +421,22 @@ def admittance_control(robot, J, f_local):
     T_w_e = robot.computeT_w_e(robot.q)
     R_w_e = T_w_e.rotation
     
-    # Transform desired position to local frame
-    ee_position_desired_local = np.zeros_like(ee_position_desired)
-    ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
-    
-    # For orientation: compute rotation error in local frame
-    R_w_e_desired = pin.exp3(ee_position_desired[3:])
-    R_w_e_current = T_w_e.rotation
-    R_error = R_w_e_current.T @ R_w_e_desired  # Rotation from current to desired in local frame
-    ee_position_desired_local[3:] = pin.log3(R_error)
+    if movable_mode:
+        # Movable mode: no spring return to original desired position
+        ee_position_desired_local = np.zeros(6)  # Stay at current position (local frame origin)
+    else:
+        # Spring mode: transform desired position to local frame for spring behavior
+        ee_position_desired_local = np.zeros_like(ee_position_desired)
+        ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
+        
+        # For orientation: compute rotation error in local frame
+        R_w_e_desired = pin.exp3(ee_position_desired[3:])
+        R_w_e_current = T_w_e.rotation
+        R_error = R_w_e_current.T @ R_w_e_desired  # Rotation from current to desired in local frame
+        ee_position_desired_local[3:] = pin.log3(R_error)
     
     # Transform desired velocity to local frame
-    vel_desired_local = np.zeros_like(vel_desired)
+    vel_desired_local = np.zeros_like(vel_desired) # !! vel_desired is currently zero!!
     vel_desired_local[:3] = R_w_e.T @ vel_desired[:3]
     vel_desired_local[3:] = R_w_e.T @ vel_desired[3:]
 
@@ -437,11 +449,14 @@ def admittance_control(robot, J, f_local):
     p_reference_local = x1 + ee_position_desired_local
     p_dot_reference_local = x2 + vel_desired_local
 
-    # Position error in local frame: current position is 0, so error is just -p_reference_local
+    if movable_mode:
+        # Movable mode: no position feedback, only velocity from admittance dynamics
+        ee_position_desired_local = x1 
+        
     vel_ref_local = p_dot_reference_local + K_p @ p_reference_local
 
     #print("p_reference_local ", p_reference_local[:3])
-    #print("ee_position_local ", ee_position_local[:3])
+    #print("movable_mode:", movable_mode)
     
     return vel_ref_local
 
@@ -452,7 +467,7 @@ def move_towards(p, target, k, dt):
         return -direction*k  # 
     elif dist < 9e-1:  # already there
         return np.zeros(3)
-    step = k * dt  # don’t overshoot
+    step = k * dt  # don't overshoot
     return direction*k
 
 def ensure_rot_vec_continuity(curr, prev):
