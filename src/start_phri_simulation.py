@@ -3,6 +3,7 @@ from smc.util.define_random_goal import getRandomlyGeneratedGoal
 from smc.control.cartesian_space import getClikArgs
 from smc.robots.utils import defineGoalPointCLI
 from phri_control import move
+#from real_robot_tests import move
 from startup_control import (moveL_only_arm, park_base)
 import sys
 import argparse
@@ -43,22 +44,31 @@ def get_args() -> argparse.Namespace:
     return args
 
 def key_listener():
+    """Continuously listen for keys and call setForceFromKey() accordingly."""
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
-        tty.setraw(fd)
+        tty.setcbreak(fd)  # less invasive than setraw()
+        print("[INFO] Key listener active. Press Ctrl+C to exit.")
         while True:
-            ch = sys.stdin.read(1)
-            if ch in ['w', 'a', 's', 'd', 'q', 'e', 'c','u','i','o','j','k','l', 'g']:
-                setForceFromKey(ch)
-            elif ch == '\x03':  # Ctrl-C to exit
+            ch = sys.stdin.read(1)  # blocking read of one key
+            if ch == '\x03':  # Ctrl-C
+                print("\n[INFO] Key listener exiting...")
                 raise KeyboardInterrupt
+            elif ch in ['w', 'a', 's', 'd', 'q', 'e', 'c', 'u', 'i', 'o', 'j', 'k', 'l', 'g']:
+                setForceFromKey(ch)
+    except KeyboardInterrupt:
+        pass
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        print("[INFO] Terminal restored.")
 
 def getKeyInputs():
+    """Start the key listener in a daemon thread."""
     listener_thread = threading.Thread(target=key_listener, daemon=True)
     listener_thread.start()
+    print("[INFO] Listener thread started.")
+
 
 def setForceFromKey(key):
     global f
@@ -169,7 +179,8 @@ if __name__ == "__main__":
     #moveL_only_arm(args, robot, handle_pose)
     print("The robot is now ready to be controlled")
     getKeyInputs()
-    move(args, robot, getForce)
+    move(args, robot, getForce) #for simulation of forces
+    #move(args, robot) # delay test
 
     robot.closeGripper()
     robot.openGripper()
