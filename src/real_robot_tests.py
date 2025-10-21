@@ -13,6 +13,7 @@ import pinocchio as pin
 import time
 import scipy.io as sio
 import os
+import time
 
 import debugpy
 
@@ -73,18 +74,34 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     # Here you can implement any additional control logic if needed
     
     if controlLoopFunction.counter%1000==0:
-        controlLoopFunction.v=-controlLoopFunction.v
+        if controlLoopFunction.v==0.05:
+            controlLoopFunction.v=0.1
+        else:
+            controlLoopFunction.v=0.05
+        controlLoopFunction.start_t=time.time()
+        controlLoopFunction.delay_measured=False
     v=controlLoopFunction.v
-    # Send velocity command to the robot
-    robot.sendVelocityCommand(np.array([0,0,0,0,0,0,0,0,0]))
+    if v == 0.1 and robot.v[8] >= 0.1 and controlLoopFunction.delay_measured!=True:
+        controlLoopFunction.delay.append(time.time()-controlLoopFunction.start_t)
+        print("Average delay: ", np.mean(controlLoopFunction.delay))
+        controlLoopFunction.delay_measured=True
+    if v == 0.05 and robot.v[8] <= 0.05 and controlLoopFunction.delay_measured!=True:
+        controlLoopFunction.delay.append(time.time()-controlLoopFunction.start_t)
+        print("Average delay: ", np.mean(controlLoopFunction.delay))
+        controlLoopFunction.delay_measured=True
 
-    print(robot.q)
+
+
+    # Send velocity command to the robot
+    robot.sendVelocityCommand(np.array([0,0,0,0,0,0,0,0,v]))
 
     return breakFlag, save_past_item, log_item
 
 controlLoopFunction.counter=0
-controlLoopFunction.v=0.05
-
+controlLoopFunction.v=0.1
+controlLoopFunction.delay=[]
+controlLoopFunction.delay_measured=True
+controlLoopFunction.start_t=0
 
 if __name__ == "__main__":
     rclpy.init(args=None)
