@@ -12,8 +12,6 @@ import termios
 import tty
 import scipy.io as sio
 
-last_key_pressed = ''  # Global variable to store the last key pressed
-
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 
@@ -96,7 +94,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     robot.v_ee = v
     J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
 
-    global last_key_pressed, cumulative_err, f, ee_position_desired, t, vel_desired, goincircle
+    global cumulative_err, f, ee_position_desired, t, vel_desired, goincircle
 
     T_w_e = robot.computeT_w_e(robot.q)
     
@@ -106,17 +104,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
 
     current_rot_vec = pin.log3(T_w_e.rotation)
 
-    # Check for discontinuity (sudden large change indicating sign flip)
-    if np.linalg.norm(current_rot_vec - controlLoopFunction.prev_rot_vec) > np.pi:
-        # Flip the sign to maintain continuity
-        current_rot_vec = -current_rot_vec
-        # Verify this actually improves continuity
-        if np.linalg.norm(current_rot_vec - controlLoopFunction.prev_rot_vec) < np.linalg.norm(-current_rot_vec - controlLoopFunction.prev_rot_vec):
-            # Keep the flipped version
-            pass
-        else:
-            # Revert to original
-            current_rot_vec = -current_rot_vec
+    current_rot_vec = ensure_rot_vec_continuity(current_rot_vec, controlLoopFunction.prev_rot_vec)
 
     controlLoopFunction.prev_rot_vec = current_rot_vec
     ee_position = np.concatenate([T_w_e.translation, current_rot_vec])
@@ -144,38 +132,16 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     #K_s = 100
 
     f_local = getForceFunction()  # get the force from the robot or simulation
-
-    # transform wrench from end-effector (local) frame to world frame
-    R_w_e = T_w_e.rotation
-    force_world = R_w_e @ f_local[:3]
-    torque_world = R_w_e @ f_local[3:]
-    f = np.concatenate([force_world, torque_world])
-
-    #f += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
-
-    last_key_pressed = ''  # reset the key
-    vel_ref = admittance_control(robot, J)
+    # Keep force in local frame for end-effector frame admittance control
     
-    # Transform vel_ref from world frame to local frame for LOCAL Jacobian
-    T_w_e = robot.computeT_w_e(robot.q)
-    R_w_e = T_w_e.rotation
-    # rotate vel_ref by +90 degrees around world Z before converting to local frame
-    angle = np.pi / 2.0
-    c, s = np.cos(angle), np.sin(angle)
-    Rz = np.array([[c, -s, 0.0],
-                   [s,  c, 0.0],
-                   [0.0, 0.0, 1.0]])
-    vel_ref[:3] = Rz @ vel_ref[:3]
-    vel_ref[3:] = Rz @ vel_ref[3:]
-    vel_ref_local = np.zeros_like(vel_ref)
-    vel_ref_local[:3] = R_w_e.T @ vel_ref[:3]  # Transform linear velocity
-    vel_ref_local[3:] = R_w_e.T @ vel_ref[3:]  # Transform angular velocity
-    
-    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref_local, robot)
+    #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
-    v_cmd = 0.5*v_cmd
-    if controlLoopFunction.iteration % 200 == 0:
-        print("q ", q)
+    vel_ref = admittance_control(robot, J, f_local)
+    
+    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
+
+    #if controlLoopFunction.iteration % 200 == 0:
+        #print("q ", q)
         #print("vel_ref ", vel_ref[:3])
         
 
@@ -381,9 +347,10 @@ def sec_objective_obstacle_avoidance(q, robot, J,
     return z
 
 
-def admittance_control(robot, J):
+def admittance_control(robot, J, f_local):
     
     """
+    Admittance control in end-effector frame
     """
     global ee_position_desired
     global ee_position
@@ -393,23 +360,43 @@ def admittance_control(robot, J):
     # B = B[:robot.model.nv, :robot.model.nv]
     M = np.linalg.inv(J @ np.linalg.inv(B) @ J.T)
     M_inv = np.linalg.inv(M)
-    global f, D, K, x1, x2, vel_desired, K_p
+    global D, K, x1, x2, vel_desired, K_p
+
+    # Transform positions to end-effector frame for consistent computation
+    T_w_e = robot.computeT_w_e(robot.q)
+    R_w_e = T_w_e.rotation
+    
+    # Transform desired position to local frame
+    ee_position_desired_local = np.zeros_like(ee_position_desired)
+    ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
+    
+    # For orientation: compute rotation error in local frame
+    R_w_e_desired = pin.exp3(ee_position_desired[3:])
+    R_w_e_current = T_w_e.rotation
+    R_error = R_w_e_current.T @ R_w_e_desired  # Rotation from current to desired in local frame
+    ee_position_desired_local[3:] = pin.log3(R_error)
+    
+    # Transform desired velocity to local frame
+    vel_desired_local = np.zeros_like(vel_desired)
+    vel_desired_local[:3] = R_w_e.T @ vel_desired[:3]
+    vel_desired_local[3:] = R_w_e.T @ vel_desired[3:]
 
     x1_dot = x2
-    x2_dot = M_inv@(f-D@x2-K@x1)
+    x2_dot = M_inv@(f_local-D@x2-K@x1)
 
     x1 = x1 + x1_dot*dt
     x2 = x2 + x2_dot*dt
 
-    p_reference = x1 + ee_position_desired
-    p_dot_reference = x2 + vel_desired
+    p_reference_local = x1 + ee_position_desired_local
+    p_dot_reference_local = x2 + vel_desired_local
 
-    vel_ref = p_dot_reference - K_p@(ee_position - p_reference)
+    # Position error in local frame: current position is 0, so error is just -p_reference_local
+    vel_ref_local = p_dot_reference_local + K_p @ p_reference_local
 
-    #print("p_reference ", p_reference[:3])
-    #print("ee_position ", ee_position[:3])
+    #print("p_reference_local ", p_reference_local[:3])
+    #print("ee_position_local ", ee_position_local[:3])
     
-    return vel_ref
+    return vel_ref_local
 
 def move_towards(p, target, k, dt):
     direction = target - p
@@ -421,6 +408,14 @@ def move_towards(p, target, k, dt):
     step = k * dt  # don’t overshoot
     return direction*k
 
+def ensure_rot_vec_continuity(curr, prev):
+    # Return curr (possibly flipped) to maintain continuity with prev
+    if np.linalg.norm(curr - prev) > np.pi:
+        flipped = -curr
+        # keep flipped only if it improves continuity
+        if np.linalg.norm(flipped - prev) < np.linalg.norm(curr - prev):
+            return flipped
+    return curr
 
 
 """
