@@ -52,10 +52,10 @@ def key_listener():
         print("[INFO] Key listener active. Press Ctrl+C to exit.")
         while True:
             ch = sys.stdin.read(1)  # blocking read of one key
-            if ch == '\x03':  # Ctrl-C
+            if ch == 'c':  # Ctrl-C
                 print("\n[INFO] Key listener exiting...")
                 raise KeyboardInterrupt
-            elif ch in ['w', 'a', 's', 'd', 'q', 'e', 'c', 'u', 'i', 'o', 'j', 'k', 'l', 'g']:
+            elif ch in ['w', 'a', 's', 'd', 'q', 'e', 'u', 'i', 'o', 'j', 'k', 'l', 'g']:
                 setForceFromKey(ch)
     except KeyboardInterrupt:
         pass

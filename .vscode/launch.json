@@ -11,7 +11,13 @@
             "connect": {
                 "host": "localhost",
                 "port": 5678
-            }   
+            },
+            "pathMappings": [
+                {
+                "localRoot": "${workspaceFolder}",
+                "remoteRoot": "/Heron-control"  // Change '/app' to the actual path in your container
+                }
+            ]   
         }
     ]
 }

@@ -14,8 +14,9 @@ import scipy.io as sio
 
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-
-D = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
+D = None
+D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
+D_movable = np.diag([300, 300, 300, 5, 5, 0.5])
 K = np.diag([100, 100, 100, 30, 30, 30])
 
 K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
@@ -23,6 +24,11 @@ K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
 t = 0
 goincircle = False
 movable_mode = True  # Flag: True = movable mode, False = spring mode (return to desired position)
+
+if(movable_mode):
+    D = D_movable
+else:
+    D = D_spring
 
 obstacle_pos_x = -3.5
 obstacle_pos_y = -1.3
@@ -451,7 +457,7 @@ def admittance_control(robot, J, f_local):
 
     if movable_mode:
         # Movable mode: no position feedback, only velocity from admittance dynamics
-        ee_position_desired_local = x1 
+        ee_position_desired_local = p_reference_local
         
     vel_ref_local = p_dot_reference_local + K_p @ p_reference_local
 
