@@ -192,5 +192,5 @@ if __name__ == "__main__":
 
     if args.save_log:
         robot._log_manager.saveLog()
-    
+
     sys.exit(0)

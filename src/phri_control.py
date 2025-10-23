@@ -16,8 +16,10 @@ ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 D = None
 D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
-D_movable = np.diag([300, 300, 300, 5, 5, 0.5])
-K = np.diag([100, 100, 100, 30, 30, 30])
+D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
+K = None
+K_spring = np.diag([100, 100, 100, 30, 30, 30])      # Normal stiffness for spring mode
+K_movable = np.diag([10, 10, 10, 1, 1, 1])  # Very low stiffness for movable mode
 
 K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
 
@@ -27,8 +29,10 @@ movable_mode = True  # Flag: True = movable mode, False = spring mode (return to
 
 if(movable_mode):
     D = D_movable
+    K = K_movable
 else:
     D = D_spring
+    K = K_spring
 
 obstacle_pos_x = -3.5
 obstacle_pos_y = -1.3
@@ -116,11 +120,11 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     controlLoopFunction.prev_rot_vec = current_rot_vec
     ee_position = np.concatenate([T_w_e.translation, current_rot_vec])
     
-    if(ee_position_desired is None):
+    """if(ee_position_desired is None):
         ee_position_desired = ee_position.copy()
         print("start ee_position_desired", ee_position_desired)
         print("start ee_position", ee_position)
-        print("start Twe rot", T_w_e.rotation)
+        print("start Twe rot", T_w_e.rotation)"""
     
 
     """if(goincircle): 
@@ -447,19 +451,62 @@ def admittance_control(robot, J, f_local):
     vel_desired_local[3:] = R_w_e.T @ vel_desired[3:]
 
     x1_dot = x2
-    x2_dot = M_inv@(f_local-D@x2-K@x1)
+    
+    # Compute admittance dynamics with numerical safety
+    # Always include spring term, but K varies by mode (high vs very low stiffness)
+    f_local = f_local*2
+    force_term = f_local - D@x2 - K@x1
+    
+    # Check for numerical issues and clip values
+    if np.any(np.isnan(force_term)) or np.any(np.isinf(force_term)):
+        print("Warning: Invalid force term, resetting to zero")
+        force_term = np.zeros_like(force_term)
+    
+    # Limit maximum force to prevent overflow
+    max_force = 1000.0 
+    force_term = np.clip(force_term, -max_force, max_force)
+    
+    x2_dot = M_inv @ force_term
+    
+    # Check for numerical issues in acceleration
+    if np.any(np.isnan(x2_dot)) or np.any(np.isinf(x2_dot)):
+        print("Warning: Invalid acceleration, resetting to zero")
+        x2_dot = np.zeros_like(x2_dot)
+    
+    # Limit maximum acceleration
+    max_accel = 10.0 
+    x2_dot = np.clip(x2_dot, -max_accel, max_accel)
 
     x1 = x1 + x1_dot*dt
     x2 = x2 + x2_dot*dt
+    
+    # Limit velocity to prevent runaway
+    max_vel = 5.0  # Adjust this limit as needed  
+    x2 = np.clip(x2, -max_vel, max_vel)
 
     p_reference_local = x1 + ee_position_desired_local
     p_dot_reference_local = x2 + vel_desired_local
 
     if movable_mode:
         # Movable mode: no position feedback, only velocity from admittance dynamics
-        ee_position_desired_local = p_reference_local
-        
-    vel_ref_local = p_dot_reference_local + K_p @ p_reference_local
+        vel_ref_local = p_dot_reference_local
+    else:
+        # Spring mode: position feedback to return to desired position
+        position_feedback = K_p @ p_reference_local
+        # Check for numerical issues in position feedback
+        if np.any(np.isnan(position_feedback)) or np.any(np.isinf(position_feedback)):
+            print("Warning: Invalid position feedback, resetting to zero")
+            position_feedback = np.zeros_like(position_feedback)
+        vel_ref_local = p_dot_reference_local + position_feedback
+    
+    # Final safety check on output velocity
+    if np.any(np.isnan(vel_ref_local)) or np.any(np.isinf(vel_ref_local)):
+        print("Warning: Invalid output velocity, resetting to zero")
+        vel_ref_local = np.zeros_like(vel_ref_local)
+    
+    # Limit final output velocity
+    max_output_vel = 2.0  # Adjust as needed
+    vel_ref_local = np.clip(vel_ref_local, -max_output_vel, max_output_vel)
 
     #print("p_reference_local ", p_reference_local[:3])
     #print("movable_mode:", movable_mode)
