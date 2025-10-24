@@ -72,7 +72,7 @@ def getKeyInputs():
 
 def setForceFromKey(key):
     global f
-    force = 10
+    force = 3
     torque = 1
     spring_delta_postion = 0.1
     """if key == 'w':

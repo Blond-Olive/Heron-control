@@ -218,7 +218,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
         v_cmd[2] = angle_command
         v_cmd[3] -= angle_command"""
 
-    v_cmd = np.zeros_like(v_cmd)
+    #v_cmd = np.zeros_like(v_cmd)
 
     robot.sendVelocityCommand(v_cmd)
 
@@ -427,8 +427,9 @@ def admittance_control(robot, J, f_local):
 
     if movable_mode:
         ee_position_desired_movable = np.zeros_like(ee_position_desired)
-        ee_position_desired_movable[4] = ee_position_desired[4]
-        ee_position_desired_movable[5] = ee_position_desired[5]
+        #ee_position_desired_movable[4] = ee_position_desired[4]
+        #ee_position_desired_movable[5] = ee_position_desired[5]
+        #ee_position_desired_movable[3] = ee_position_desired[3]
         ee_position_desired = ee_position_desired_movable
         # In movable mode, update desired position based on current position and velocity
 
@@ -452,8 +453,8 @@ def admittance_control(robot, J, f_local):
     # Compute admittance dynamics with numerical safety
     # Always include spring term, but K varies by mode (high vs very low stiffness)
     f_local = f_local*2
-    force_term = f_local - D@x2 - K@x1
-    
+    #force_term = f_local - D@x2 - K@x1
+    force_term = f_local - D@x2
     # Check for numerical issues and clip values
     if np.any(np.isnan(force_term)) or np.any(np.isinf(force_term)):
         print("Warning: Invalid force term, resetting to zero")
