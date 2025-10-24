@@ -38,13 +38,15 @@ if __name__ == "__main__":
     robot.openGripper()
 
     print("Please add plank")
-    time.sleep(5)
+    time.sleep(2)
 
     robot.gripper.move(250, 255, 255)
 
     print("sleeping...")
-    time.sleep(2)
-    print("awake now")
+    time.sleep(3)
+
+    print("Calibrating force-torque sensor...")
+    robot.wrench_offset = robot.calibrateFT(robot.dt)
 
     def getForce(robot):
         raw_wrench = robot.wrench
