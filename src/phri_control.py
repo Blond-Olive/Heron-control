@@ -218,7 +218,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
         v_cmd[2] = angle_command
         v_cmd[3] -= angle_command"""
 
-    v_cmd = np.zeros_like(v_cmd)
+    #v_cmd = np.zeros_like(v_cmd)
 
     robot.sendVelocityCommand(v_cmd)
 
