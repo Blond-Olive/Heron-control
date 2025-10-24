@@ -19,7 +19,7 @@ D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary e
 D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
 K = None
 K_spring = np.diag([100, 100, 100, 30, 30, 30])      # Normal stiffness for spring mode
-K_movable = np.diag([10, 10, 10, 1, 1, 1])  # Very low stiffness for movable mode
+K_movable = np.diag([10, 10, 10, 1, 10, 10])  # Very low stiffness for movable mode
 
 K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
 
@@ -105,7 +105,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     robot.v_ee = v
     J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
 
-    global f, ee_position_desired, t, vel_desired, goincircle
+    global ee_position_desired, t, vel_desired, goincircle
 
     T_w_e = robot.computeT_w_e(robot.q)
     
@@ -120,11 +120,8 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     controlLoopFunction.prev_rot_vec = current_rot_vec
     ee_position = np.concatenate([T_w_e.translation, current_rot_vec])
     
-    """if(ee_position_desired is None):
+    if(ee_position_desired is None):
         ee_position_desired = ee_position.copy()
-        print("start ee_position_desired", ee_position_desired)
-        print("start ee_position", ee_position)
-        print("start Twe rot", T_w_e.rotation)"""
     
 
     """if(goincircle): 
@@ -160,6 +157,8 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
 
     f = getForceFunction()  # get the force from the robot or simulation
     # Keep force in local frame for end-effector frame admittance control
+
+    f = forceFromTorques(f)
     
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
@@ -167,14 +166,8 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
-    """if controlLoopFunction.iteration % 200 == 0:
-        if np.abs(f[0]) > 5:
-            print("pushing in x-direction (red)")
-        if np.abs(f[1]) > 5:
-            print("pushing in y-direction (green)")
-        if np.abs(f[2]) > 5:
-            print("pushing in z-direction (blue)")
-        #print("vel_ref ", vel_ref[:3])"""
+    #if controlLoopFunction.iteration % 200 == 0:
+        #print("f", f)
         
 
     global logs
@@ -225,6 +218,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
         v_cmd[2] = angle_command
         v_cmd[3] -= angle_command"""
 
+    v_cmd = np.zeros_like(v_cmd)
 
     robot.sendVelocityCommand(v_cmd)
 
@@ -430,20 +424,23 @@ def admittance_control(robot, J, f_local):
     # Transform positions to end-effector frame for consistent computation
     T_w_e = robot.computeT_w_e(robot.q)
     R_w_e = T_w_e.rotation
-    
+
     if movable_mode:
-        # Movable mode: no spring return to original desired position
-        ee_position_desired_local = np.zeros(6)  # Stay at current position (local frame origin)
-    else:
-        # Spring mode: transform desired position to local frame for spring behavior
-        ee_position_desired_local = np.zeros_like(ee_position_desired)
-        ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
-        
-        # For orientation: compute rotation error in local frame
-        R_w_e_desired = pin.exp3(ee_position_desired[3:])
-        R_w_e_current = T_w_e.rotation
-        R_error = R_w_e_current.T @ R_w_e_desired  # Rotation from current to desired in local frame
-        ee_position_desired_local[3:] = pin.log3(R_error)
+        ee_position_desired_movable = np.zeros_like(ee_position_desired)
+        ee_position_desired_movable[4] = ee_position_desired[4]
+        ee_position_desired_movable[5] = ee_position_desired[5]
+        ee_position_desired = ee_position_desired_movable
+        # In movable mode, update desired position based on current position and velocity
+
+    # Spring mode: transform desired position to local frame for spring behavior
+    ee_position_desired_local = np.zeros_like(ee_position_desired)
+    ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
+    
+    # For orientation: compute rotation error in local frame
+    R_w_e_desired = pin.exp3(ee_position_desired[3:])
+    R_w_e_current = T_w_e.rotation
+    R_error = R_w_e_current.T @ R_w_e_desired  # Rotation from current to desired in local frame
+    ee_position_desired_local[3:] = pin.log3(R_error)
     
     # Transform desired velocity to local frame
     vel_desired_local = np.zeros_like(vel_desired) # !! vel_desired is currently zero!!
@@ -513,6 +510,22 @@ def admittance_control(robot, J, f_local):
     
     return vel_ref_local
 
+def forceFromTorques(f):
+    """
+    Translates a force and torque vector in to only forces through an object
+    pointing 0.5 m in the local z direction.
+    """
+    r = np.array([0, 0, 0.5])
+
+    torques = f[3:]
+
+    additional_f = np.cross(torques, r)
+
+    f[3:] = np.zeros_like(f[3:])
+    f[:3] += f[:3] + additional_f
+
+    return f
+
 def move_towards(p, target, k, dt):
     direction = target - p
     dist = np.linalg.norm(direction)
@@ -534,9 +547,6 @@ def ensure_rot_vec_continuity(curr, prev):
 
 
 """
-Questions for Yiannis:
-
-Second column take away and bring back in J?
 
 v_cmd = [base narrow dir, nothing, <base rot anti-clickwise>, joint 1, joint 2, joint 3 (middle), joint 4, joint 5, joint 6]
 

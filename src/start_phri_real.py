@@ -5,6 +5,7 @@ from phri_control import move
 from functools import partial
 import numpy as np
 import sys
+import time
 
 if __name__ == "__main__":
     rclpy.init(args=None)
@@ -25,6 +26,7 @@ if __name__ == "__main__":
     args.visualizer=False
     args.plotter = False
     args.max_v_percentage=0.2
+    args.gripper = "rs485"
     
 
     modes_and_loops = []
@@ -32,6 +34,17 @@ if __name__ == "__main__":
     robot.base2ee = 0.75
     robot._mode = robot.control_mode.whole_body
     robot._step()
+
+    robot.openGripper()
+
+    print("Please add plank")
+    time.sleep(5)
+
+    robot.gripper.move(250, 255, 255)
+
+    print("sleeping...")
+    time.sleep(2)
+    print("awake now")
 
     def getForce(robot):
         raw_wrench = robot.wrench
