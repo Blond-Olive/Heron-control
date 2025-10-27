@@ -55,7 +55,7 @@ def key_listener():
             if ch == 'c':  # Ctrl-C
                 print("\n[INFO] Key listener exiting...")
                 raise KeyboardInterrupt
-            elif ch in ['w', 'a', 's', 'd', 'q', 'e', 'u', 'i', 'o', 'j', 'k', 'l', 'g']:
+            elif ch in ['w', 'a', 's', 'd', 'q', 'e', 'u', 'i', 'o', 'j', 'k', 'l', 'g','z']:
                 setForceFromKey(ch)
     except KeyboardInterrupt:
         pass
@@ -125,6 +125,8 @@ def setForceFromKey(key):
         f += np.array([0, 0, 0, torque, 0, 0])
     elif key == 'o':
         f += np.array([0, 0, 0, -torque, 0, 0])
+    elif key == 'z':
+        f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])    
     
     print("Current force command: ", f)
 
