@@ -452,7 +452,6 @@ def admittance_control(robot, J, f_local):
     
     # Compute admittance dynamics with numerical safety
     # Always include spring term, but K varies by mode (high vs very low stiffness)
-    f_local = f_local*2
     #force_term = f_local - D@x2 - K@x1
     force_term = f_local - D@x2
     # Check for numerical issues and clip values

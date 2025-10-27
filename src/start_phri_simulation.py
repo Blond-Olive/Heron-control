@@ -133,8 +133,8 @@ def generateNoise(standard_Deviation, length):
 
 def getForce():
     global f
-    #returnforce = f + generateNoise(0.1, 6)
-    return f
+    returnforce = f.copy() #+ generateNoise(0.1, 6)
+    return returnforce
 
 if __name__ == "__main__":
 
