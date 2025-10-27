@@ -2,7 +2,7 @@ from smc import getMinimalArgParser, getRobotFromArgs
 from smc.util.define_random_goal import getRandomlyGeneratedGoal
 from smc.control.cartesian_space import getClikArgs
 from smc.robots.utils import defineGoalPointCLI
-from phri_control import move
+from phri_control import move, savelogs
 #from real_robot_tests import move
 from startup_control import (moveL_only_arm, park_base)
 import sys
@@ -16,10 +16,10 @@ import threading
 import sys
 import termios
 import tty
+import signal
 
 import debugpy
 
-        
 force_pull_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 f = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
@@ -138,8 +138,26 @@ def getForce():
     returnforce = f.copy() #+ generateNoise(0.1, 6)
     return returnforce
 
-if __name__ == "__main__":
+"""def signal_handler(sig, frame):
+    print("[INFO] Signal received, stopping...")
+    savelogs()"""
 
+#signal.signal(signal.SIGINT, signal_handler)
+
+class logger: 
+    def __init__(self):
+        self.q_log = []
+        self.v_cmd_log = []
+        self.f_log = []
+
+    def saveLog(self):
+        savelogs() #This is a HACK
+
+    def storeControlLoopRun(self, log_dict, loop_name, final_iteration):
+        pass
+
+if __name__ == "__main__":
+    
     args = get_args()
     if args.debug:
         print("Waiting for debugger attach. Go to VSCode and do Run>Start debugging")
@@ -147,6 +165,7 @@ if __name__ == "__main__":
         debugpy.wait_for_client()  # Program pauses here until VS Code attaches
     args.robot = "heron"
     # args.robot = "ur5e"
+    global robot
     robot = getRobotFromArgs(args)
     args.ik_solver = "keep_distance_nullspace"
     
@@ -155,6 +174,9 @@ if __name__ == "__main__":
     args.plotter = False
     args.max_v_percentage=0.2
     robot.base2ee = 0.75
+
+    args.save_log = True
+    robot._log_manager = logger()
    
     parking_lot = np.array([-1.5, -1.15, np.deg2rad(00)])
     # parking_lot = np.array([0, 0, 0])
@@ -184,8 +206,6 @@ if __name__ == "__main__":
     move(args, robot, getForce) #for simulation of forces
     #move(args, robot) # delay test
 
-    robot.closeGripper()
-    robot.openGripper()
     if args.real:
         robot.stopRobot()
 
