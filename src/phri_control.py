@@ -51,6 +51,8 @@ logs = {
     "p_refs": [],
     "p_dot_refs": [],
     "vel_refs": [],
+    "ee_positions": [],
+    "ee_positions_desired": [],
 }
 
 def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
@@ -82,6 +84,8 @@ def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
         "err_norm": np.zeros(1),
     }
     save_past_dict = {}
+    robot._log_manager = logger()
+    
     args.max_iterations = 1000000  # effectively infinite
     global loop_manager
     loop_manager = ControlLoopManager(
@@ -520,6 +524,8 @@ def admittance_control(robot, J, f_local):
     logs["p_refs"].append(p_reference_local.copy())
     logs["p_dot_refs"].append(p_dot_reference_local.copy())
     logs["vel_refs"].append(vel_ref_local.copy())
+    logs["ee_positions"].append(ee_position.copy())
+    logs["ee_positions_desired"].append(ee_position_desired.copy())
     
     if np.linalg.norm(vel_ref_local) > 3.0:
         print("Warning: High velocity command:", vel_ref_local)
@@ -582,7 +588,15 @@ def savelogs():
     end_time = time.time_ns()
     print(f"Saved logs to {filepath} in {(end_time - start_time) / 1e9:.4f} seconds ")
 
+class logger: 
+    def __init__(self):
+        pass
 
+    def saveLog(self):
+        savelogs() #This is a HACK
+
+    def storeControlLoopRun(self, log_dict, loop_name, final_iteration):
+        pass
 """
 
 v_cmd = [base narrow dir, nothing, <base rot anti-clickwise>, joint 1, joint 2, joint 3 (middle), joint 4, joint 5, joint 6]

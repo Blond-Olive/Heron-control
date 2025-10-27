@@ -144,18 +144,6 @@ def getForce():
 
 #signal.signal(signal.SIGINT, signal_handler)
 
-class logger: 
-    def __init__(self):
-        self.q_log = []
-        self.v_cmd_log = []
-        self.f_log = []
-
-    def saveLog(self):
-        savelogs() #This is a HACK
-
-    def storeControlLoopRun(self, log_dict, loop_name, final_iteration):
-        pass
-
 if __name__ == "__main__":
     
     args = get_args()
@@ -176,7 +164,6 @@ if __name__ == "__main__":
     robot.base2ee = 0.75
 
     args.save_log = True
-    robot._log_manager = logger()
    
     parking_lot = np.array([-1.5, -1.15, np.deg2rad(00)])
     # parking_lot = np.array([0, 0, 0])
