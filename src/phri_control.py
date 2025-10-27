@@ -15,17 +15,19 @@ import scipy.io as sio
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 D = None
-D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
+#D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
+D_spring = np.diag([10, 10, 10, 0.1, 0.1, 0.05]) 
 D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
 K = None
-K_spring = np.diag([100, 100, 100, 30, 30, 30])      # Normal stiffness for spring mode
-K_movable = np.diag([10, 10, 10, 1, 10, 10])  # Very low stiffness for movable mode
-
+#K_spring = np.diag([100, 100, 100, 30, 30, 30])      # Normal stiffness for spring mode
+K_spring = np.diag([50, 50, 50, 15, 15, 15])
+#K_movable = np.diag([10, 10, 10, 1, 10, 10])  # Very low stiffness for movable mode
+K_movable = np.diag([0, 0, 0, 0, 0, 0])  # Very low stiffness for movable mode
 K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
 
 t = 0
 goincircle = False
-movable_mode = True  # Flag: True = movable mode, False = spring mode (return to desired position)
+movable_mode = False  # Flag: True = movable mode, False = spring mode (return to desired position)
 
 if(movable_mode):
     D = D_movable
@@ -157,13 +159,16 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
 
     f = getForceFunction()  # get the force from the robot or simulation
     # Keep force in local frame for end-effector frame admittance control
-
-    f = forceFromTorques(f)
+    if np.linalg.norm(f) < 2:
+        f=np.zeros_like(f)
+    elif controlLoopFunction.iteration % 100 == 0:
+        print("f", f)
+    #f = forceFromTorques(f)
     
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
     vel_ref = admittance_control(robot, J, f)
-    
+
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
     #if controlLoopFunction.iteration % 200 == 0:
@@ -425,12 +430,8 @@ def admittance_control(robot, J, f_local):
     T_w_e = robot.computeT_w_e(robot.q)
     R_w_e = T_w_e.rotation
 
-    if movable_mode:
-        ee_position_desired_movable = np.zeros_like(ee_position_desired)
-        #ee_position_desired_movable[4] = ee_position_desired[4]
-        #ee_position_desired_movable[5] = ee_position_desired[5]
-        #ee_position_desired_movable[3] = ee_position_desired[3]
-        ee_position_desired = ee_position_desired_movable
+    if movable_mode:#TODO rotation suppression here
+        pass
         # In movable mode, update desired position based on current position and velocity
 
     # Spring mode: transform desired position to local frame for spring behavior
@@ -452,8 +453,8 @@ def admittance_control(robot, J, f_local):
     
     # Compute admittance dynamics with numerical safety
     # Always include spring term, but K varies by mode (high vs very low stiffness)
-    #force_term = f_local - D@x2 - K@x1
-    force_term = f_local - D@x2
+    force_term = f_local - D@x2 - K@x1
+    #force_term = f_local - D@x2
     # Check for numerical issues and clip values
     if np.any(np.isnan(force_term)) or np.any(np.isinf(force_term)):
         print("Warning: Invalid force term, resetting to zero")
@@ -461,7 +462,7 @@ def admittance_control(robot, J, f_local):
     
     # Limit maximum force to prevent overflow
     max_force = 1000.0 
-    force_term = np.clip(force_term, -max_force, max_force)
+    #force_term = np.clip(force_term, -max_force, max_force)
     
     x2_dot = M_inv @ force_term
     
@@ -472,14 +473,14 @@ def admittance_control(robot, J, f_local):
     
     # Limit maximum acceleration
     max_accel = 10.0 
-    x2_dot = np.clip(x2_dot, -max_accel, max_accel)
+    #x2_dot = np.clip(x2_dot, -max_accel, max_accel)
 
     x1 = x1 + x1_dot*dt
     x2 = x2 + x2_dot*dt
     
     # Limit velocity to prevent runaway
     max_vel = 5.0  # Adjust this limit as needed  
-    x2 = np.clip(x2, -max_vel, max_vel)
+    #x2 = np.clip(x2, -max_vel, max_vel)
 
     p_reference_local = x1 + ee_position_desired_local
     p_dot_reference_local = x2 + vel_desired_local
@@ -503,7 +504,7 @@ def admittance_control(robot, J, f_local):
     
     # Limit final output velocity
     max_output_vel = 2.0  # Adjust as needed
-    vel_ref_local = np.clip(vel_ref_local, -max_output_vel, max_output_vel)
+    #vel_ref_local = np.clip(vel_ref_local, -max_output_vel, max_output_vel)
 
     #print("p_reference_local ", p_reference_local[:3])
     #print("movable_mode:", movable_mode)
