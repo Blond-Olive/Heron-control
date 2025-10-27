@@ -17,7 +17,7 @@ ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 D = None
 #D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
-D_spring = np.diag([10, 10, 10, 0.1, 0.1, 0.05]) 
+D_spring = np.diag([50, 50, 50, 1, 1, 0.05]) 
 D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
 K = None
 #K_spring = np.diag([100, 100, 100, 30, 30, 30])      # Normal stiffness for spring mode
@@ -521,6 +521,9 @@ def admittance_control(robot, J, f_local):
     logs["p_dot_refs"].append(p_dot_reference_local.copy())
     logs["vel_refs"].append(vel_ref_local.copy())
     
+    if np.linalg.norm(vel_ref_local) > 3.0:
+        print("Warning: High velocity command:", vel_ref_local)
+        vel_ref_local = np.zeros_like(vel_ref_local)
     return vel_ref_local
 
 def forceFromTorques(f):
