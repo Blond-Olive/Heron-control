@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from smc.robots.implementations.heron_real import get_args, RealHeronRobotManagerNode
-from phri_control import move
+from phri_control import move, savelogs
 from functools import partial
 import numpy as np
 import sys
@@ -80,6 +80,7 @@ if __name__ == "__main__":
         robot.killManipulatorVisualizer()
 
     if args.save_log:
-        robot._log_manager.saveLog()
+        #robot._log_manager.saveLog()
+        savelogs()
     
     sys.exit(0)

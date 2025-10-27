@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from argparse import Namespace
 from functools import partial
@@ -16,7 +17,7 @@ ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 D = None
 D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
-D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
+D_movable = np.diag([100, 100, 100, 10, 10, 0.5])  # More moderate damping to avoid numerical issues
 K = None
 K_spring = np.diag([100, 100, 100, 30, 30, 30])      # Normal stiffness for spring mode
 K_movable = np.diag([10, 10, 10, 1, 10, 10])  # Very low stiffness for movable mode
@@ -42,6 +43,12 @@ logs = {
     "dqs": [],
     "v_cmd": [],
     "f": [],
+    "x1s": [],
+    "x2s": [],
+    "x2dots": [],
+    "p_refs": [],
+    "p_dot_refs": [],
+    "vel_refs": [],
 }
 
 def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
@@ -74,6 +81,7 @@ def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
     }
     save_past_dict = {}
     args.max_iterations = 1000000  # effectively infinite
+    global loop_manager
     loop_manager = ControlLoopManager(
         robot, controlLoop, args, save_past_dict, log_item
     )
@@ -170,17 +178,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
         #print("f", f)
         
 
-    global logs
-    logs["qs"].append(q.copy())
-    logs["v_cmd"].append(v_cmd.copy())
-    logs["f"].append(f.copy())
-    if controlLoopFunction.iteration % 1000 == 0:
-        sio.savemat("phri_log.mat", {
-            "qs": np.array(logs["qs"]),
-            "v_cmd": np.array(logs["v_cmd"]),
-            "f": np.array(logs["f"]),
-        })
-
+    
     #if controlLoopFunction.iteration % 100 == 0:
         #print("x1 ", x1)
 
@@ -221,6 +219,11 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     #v_cmd = np.zeros_like(v_cmd)
 
     robot.sendVelocityCommand(v_cmd)
+
+    global logs
+    logs["qs"].append(q.copy())
+    logs["v_cmd"].append(v_cmd.copy())
+    logs["f"].append(f.copy())
 
     return breakFlag, save_past_item, log_item
 
@@ -448,8 +451,6 @@ def admittance_control(robot, J, f_local):
     vel_desired_local[:3] = R_w_e.T @ vel_desired[:3]
     vel_desired_local[3:] = R_w_e.T @ vel_desired[3:]
 
-    x1_dot = x2
-    
     # Compute admittance dynamics with numerical safety
     # Always include spring term, but K varies by mode (high vs very low stiffness)
     #force_term = f_local - D@x2 - K@x1
@@ -461,7 +462,7 @@ def admittance_control(robot, J, f_local):
     
     # Limit maximum force to prevent overflow
     max_force = 1000.0 
-    force_term = np.clip(force_term, -max_force, max_force)
+    #force_term = np.clip(force_term, -max_force, max_force)
     
     x2_dot = M_inv @ force_term
     
@@ -471,15 +472,17 @@ def admittance_control(robot, J, f_local):
         x2_dot = np.zeros_like(x2_dot)
     
     # Limit maximum acceleration
-    max_accel = 10.0 
-    x2_dot = np.clip(x2_dot, -max_accel, max_accel)
+    #max_accel = 10.0 
+    #x2_dot = np.clip(x2_dot, -max_accel, max_accel)
+
+    x1_dot = x2
 
     x1 = x1 + x1_dot*dt
     x2 = x2 + x2_dot*dt
     
     # Limit velocity to prevent runaway
     max_vel = 5.0  # Adjust this limit as needed  
-    x2 = np.clip(x2, -max_vel, max_vel)
+    #x2 = np.clip(x2, -max_vel, max_vel)
 
     p_reference_local = x1 + ee_position_desired_local
     p_dot_reference_local = x2 + vel_desired_local
@@ -507,6 +510,14 @@ def admittance_control(robot, J, f_local):
 
     #print("p_reference_local ", p_reference_local[:3])
     #print("movable_mode:", movable_mode)
+
+    global logs
+    logs["x1s"].append(x1.copy())
+    logs["x2s"].append(x2.copy())
+    logs["x2dots"].append(x2_dot.copy())
+    logs["p_refs"].append(p_reference_local.copy())
+    logs["p_dot_refs"].append(p_dot_reference_local.copy())
+    logs["vel_refs"].append(vel_ref_local.copy())
     
     return vel_ref_local
 
@@ -544,6 +555,27 @@ def ensure_rot_vec_continuity(curr, prev):
         if np.linalg.norm(flipped - prev) < np.linalg.norm(curr - prev):
             return flipped
     return curr
+    
+
+def savelogs():
+    print("Saving logs to phri_log.mat...")
+    global logs
+    start_time = time.time_ns()
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        matlab_dir = os.path.abspath(os.path.join(base_dir, "..", "matlab"))
+        os.makedirs(matlab_dir, exist_ok=True)
+        filepath = os.path.join(matlab_dir, "phri_log.mat")
+        keys = logs.keys()
+        save_dict = {}
+        for key in keys:
+            save_dict[key] = np.array(logs[key])
+
+        sio.savemat(filepath, {**save_dict})
+    except Exception as e:
+        print("Warning: failed to save phri_log.mat:", e)
+    end_time = time.time_ns()
+    print(f"Saved logs to {filepath} in {(end_time - start_time) / 1e9:.4f} seconds ")
 
 
 """
