@@ -16,15 +16,14 @@ import scipy.io as sio
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 D = None
-#D_spring = np.diag([100, 100, 100, 5, 5, 0.5]) # last three creates stationary error
-D_spring = np.diag([10, 10, 10, 0.1, 0.1, 0.05]) 
+D_spring = np.diag([50, 50, 50, 10, 10, 10]) 
 D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
 K = None
-#K_spring = np.diag([100, 100, 100, 30, 30, 30])      # Normal stiffness for spring mode
-K_spring = np.diag([50, 50, 50, 15, 15, 15])
-#K_movable = np.diag([10, 10, 10, 1, 10, 10])  # Very low stiffness for movable mode
+K_spring = np.diag([10, 10, 10, 2, 2, 2])
 K_movable = np.diag([0, 0, 0, 0, 0, 0])  # Very low stiffness for movable mode
 K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
+
+M = np.diag([0.4, 0.4, 0.4, 0.1, 0.1, 0.1])  # Mass/inertia for admittance control
 
 t = 0
 goincircle = False
@@ -53,6 +52,7 @@ logs = {
     "vel_refs": [],
     "ee_positions": [],
     "ee_positions_desired": [],
+    "force_terms": [],
 }
 
 def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
@@ -108,8 +108,6 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
 
     if(controlLoopFunction.iteration < 100):
         return breakFlag, save_past_item, log_item
-    if(controlLoopFunction.iteration == 100):
-        print("Starting control loop")
 
     q = robot.q
 
@@ -173,8 +171,8 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     # Keep force in local frame for end-effector frame admittance control
     if np.linalg.norm(f) < 2:
         f=np.zeros_like(f)
-    elif controlLoopFunction.iteration % 100 == 0:
-        print("f", f)
+    #elif controlLoopFunction.iteration % 100 == 0:
+        #print("f", f)
     #f = forceFromTorques(f)
     
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
@@ -427,11 +425,12 @@ def admittance_control(robot, J, f_local):
     global movable_mode
 
     dt = robot.dt
-    B =  pin.crba(robot.model, robot.data, robot.q)
+
+    global D, K, M, x1, x2, vel_desired, K_p
+
     # B = B[:robot.model.nv, :robot.model.nv]
-    M = np.linalg.inv(J @ np.linalg.inv(B) @ J.T)
     M_inv = np.linalg.inv(M)
-    global D, K, x1, x2, vel_desired, K_p
+    #M = np.linalg.inv(M_inv)
 
     # Transform positions to end-effector frame for consistent computation
     T_w_e = robot.computeT_w_e(robot.q)
@@ -525,8 +524,13 @@ def admittance_control(robot, J, f_local):
     logs["p_dot_refs"].append(p_dot_reference_local.copy())
     logs["vel_refs"].append(vel_ref_local.copy())
     logs["ee_positions"].append(ee_position.copy())
-    logs["ee_positions_desired"].append(ee_position_desired.copy())
+    logs["ee_positions_desired"].append(ee_position_desired_local.copy())
+    logs["force_terms"].append(force_term.copy())
     
+    if np.linalg.norm(vel_ref_local) > 3.0:
+        print("Warning: High output velocity:", vel_ref_local)
+        vel_ref_local = np.zeros_like(vel_ref_local)
+
     return vel_ref_local
 
 def forceFromTorques(f):

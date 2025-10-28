@@ -1,6 +1,6 @@
 load("phri_log.mat")
 dt = 0.002
-time = 0:dt:(length(f) - 1)*dt
+time = 0:dt:((length(f) - 1)*dt)
 
 figure(1)
 plot(time, f)
@@ -22,6 +22,8 @@ title("Velocity commands")
 xlabel("Time [s]")
 ylabel("Command")
 legend("Base forward", "", "Base rotation", "Joint 1", "Joint 2", "Joint 3", "Joint 4", "Joint 5", "Joint 6")
+
+time = 0:dt:((length(x1s) - 1)*dt)
 
 figure(4)
 plot(time, x1s)
@@ -67,7 +69,7 @@ legend("x", "y", "z", "rx", "ry", "rz")
 
 figure(10)
 plot(time, ee_positions)
-title("End effector positions (Task space)")
+title("Global End effector positions (Task space)")
 xlabel("Time [s]")
 ylabel("Value")
 legend("x", "y", "z", "rx", "ry", "rz")
@@ -75,6 +77,13 @@ legend("x", "y", "z", "rx", "ry", "rz")
 figure(11)
 plot(time, ee_positions_desired)
 title("Desired end effector position (Task space)")
+xlabel("Time [s]")
+ylabel("Value")
+legend("x", "y", "z", "rx", "ry", "rz")
+
+figure(12)
+plot(time, force_terms)
+title("Simulated force (Force term)")
 xlabel("Time [s]")
 ylabel("Value")
 legend("x", "y", "z", "rx", "ry", "rz")

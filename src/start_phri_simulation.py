@@ -74,33 +74,7 @@ def setForceFromKey(key):
     global f
     force = 3
     torque = 1
-    spring_delta_postion = 0.1
-    """if key == 'w':
-        force_pull_position += np.array([0.0, 0.0, spring_delta_postion, 0.0, 0.0, 0.0])
-        #f += np.array([0, 0, force, 0, 0, 0])
-        #err_vector = np.array([0, 0, v, 0, 0, 0])
-    elif key == 's':
-        force_pull_position -= np.array([0.0, 0.0, spring_delta_postion, 0.0, 0.0, 0.0])
-        #f += np.array([0, 0, -force, 0, 0, 0])
-        #err_vector = np.array([0, 0, -v, 0, 0, 0])
-    elif key == 'a':
-        force_pull_position += np.array([0.0, spring_delta_postion, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([0, force, 0, 0, 0, 0])
-        #err_vector = np.array([0, v, 0, 0, 0, 0])
-    elif key == 'd':
-        force_pull_position -= np.array([0.0, spring_delta_postion, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([0, -force, 0, 0, 0, 0])  
-        #err_vector = np.array([0, -v, 0, 0, 0, 0])
-    elif key == 'q':
-        force_pull_position += np.array([spring_delta_postion, 0.0, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([force, 0, 0, 0, 0, 0])  
-        #err_vector = np.array([0, 0, 0, 0, 0, 0])   
-    elif key == 'e':
-        force_pull_position -= np.array([spring_delta_postion, 0.0, 0.0, 0.0, 0.0, 0.0])
-        #f += np.array([-force, 0, 0, 0, 0, 0])  
-        #err_vector = np.array([0, 0, 0, 0, 0, 0])  
-    elif key == 'c':
-        force_pull_position = ee_position_desired_old.copy()"""
+
     if key == 'a':
         f += np.array([force, 0, 0, 0, 0, 0])
     elif key == 'd':
@@ -135,14 +109,8 @@ def generateNoise(standard_Deviation, length):
 
 def getForce():
     global f
-    returnforce = f.copy() #+ generateNoise(0.1, 6)
+    returnforce = f.copy() + generateNoise(0.1, 6)
     return returnforce
-
-"""def signal_handler(sig, frame):
-    print("[INFO] Signal received, stopping...")
-    savelogs()"""
-
-#signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == "__main__":
     
