@@ -1,6 +1,6 @@
 load("phri_log.mat")
 dt = 0.002
-time = 0:dt:((length(f) - 1)*dt)
+time = 0:dt:((length(f) - 1)*dt);
 
 figure(1)
 plot(time, f)
@@ -23,7 +23,7 @@ xlabel("Time [s]")
 ylabel("Command")
 legend("Base forward", "", "Base rotation", "Joint 1", "Joint 2", "Joint 3", "Joint 4", "Joint 5", "Joint 6")
 
-time = 0:dt:((length(x1s) - 1)*dt)
+time = 0:dt:((length(x1s) - 1)*dt);
 
 figure(4)
 plot(time, x1s)

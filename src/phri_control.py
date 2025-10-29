@@ -168,16 +168,15 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     #K_s = 100
 
     f = getForceFunction()  # get the force from the robot or simulation
+    f_denoised = denoiseForce(f, threshold=0.5)
     # Keep force in local frame for end-effector frame admittance control
-    if np.linalg.norm(f) < 2:
-        f=np.zeros_like(f)
     #elif controlLoopFunction.iteration % 100 == 0:
         #print("f", f)
     #f = forceFromTorques(f)
     
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
-    vel_ref = admittance_control(robot, J, f)
+    vel_ref = admittance_control(robot, J, f_denoised)
 
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
@@ -230,7 +229,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     global logs
     logs["qs"].append(q.copy())
     logs["v_cmd"].append(v_cmd.copy())
-    logs["f"].append(f.copy())
+    logs["f"].append(f_denoised.copy())
 
     return breakFlag, save_past_item, log_item
 
@@ -548,6 +547,21 @@ def forceFromTorques(f):
     f[:3] += f[:3] + additional_f
 
     return f
+
+
+def denoiseForce(f, threshold=0.5):
+    # Low pass filter with cutoff ~10Hz
+    alpha = 0.1 # smoothing factor
+    f_denoised = alpha*f + (1-alpha)*denoiseForce.last_f
+    denoiseForce.last_f = f_denoised.copy()
+
+    # Zero out components below threshold
+    for i in range(len(f)):
+        if abs(f[i]) < threshold:
+            f_denoised[i] = 0.0
+    return f_denoised
+
+denoiseForce.last_f = np.zeros(6)
 
 def move_towards(p, target, k, dt):
     direction = target - p
