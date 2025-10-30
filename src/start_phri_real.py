@@ -35,7 +35,9 @@ if __name__ == "__main__":
     robot._mode = robot.control_mode.whole_body
     robot._step()
 
-    robot.openGripper()
+    print("status:", robot._rtde_control.getRobotStatus())
+
+    """robot.openGripper()
 
     print("Please add plank")
     time.sleep(2)
@@ -45,7 +47,7 @@ if __name__ == "__main__":
     print("sleeping...")
     time.sleep(3)
 
-    print("Calibrating force-torque sensor...")
+    print("Calibrating force-torque sensor...")"""
     robot.wrench_offset = robot.calibrateFT(robot.dt)
 
     def getForce(robot):

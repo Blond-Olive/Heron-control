@@ -74,10 +74,8 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
     # Here you can implement any additional control logic if needed
     
     if controlLoopFunction.counter%1000==0:
-        if controlLoopFunction.v==0.05:
-            controlLoopFunction.v=0.1
-        else:
-            controlLoopFunction.v=0.05
+        controlLoopFunction.v = -controlLoopFunction.v
+            
         controlLoopFunction.start_t=time.time()
         controlLoopFunction.delay_measured=False
     v=controlLoopFunction.v
@@ -85,7 +83,7 @@ def controlLoopFunction(robot: SingleArmInterface, new_pose, i):
         controlLoopFunction.delay.append(time.time()-controlLoopFunction.start_t)
         print("Average delay: ", np.mean(controlLoopFunction.delay))
         controlLoopFunction.delay_measured=True
-    if v == 0.05 and robot.v[8] <= 0.05 and controlLoopFunction.delay_measured!=True:
+    if v == -0.1 and robot.v[8] <= 0.05 and controlLoopFunction.delay_measured!=True:
         controlLoopFunction.delay.append(time.time()-controlLoopFunction.start_t)
         print("Average delay: ", np.mean(controlLoopFunction.delay))
         controlLoopFunction.delay_measured=True

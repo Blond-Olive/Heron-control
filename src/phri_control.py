@@ -15,26 +15,18 @@ import scipy.io as sio
 
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-D = None
-D_spring = np.diag([50, 50, 50, 10, 10, 10]) 
-D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
-K = None
-K_spring = np.diag([10, 10, 10, 2, 2, 2])
-K_movable = np.diag([0, 0, 0, 0, 0, 0])  # Very low stiffness for movable mode
-K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
+#D = np.diag([25, 25, 25, 10, 10, 10]) 
+K = np.diag([25, 25, 25, 10, 10, 10])
+M = np.diag([1, 1, 1, 0.2, 0.2, 0.2])  # Mass/inertia for admittance control
 
-M = np.diag([0.4, 0.4, 0.4, 0.1, 0.1, 0.1])  # Mass/inertia for admittance control
+damping_ratio = 4
+D = damping_ratio*2*np.sqrt(M@K)
+print(D)
+
+K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
 
 t = 0
 goincircle = False
-movable_mode = False  # Flag: True = movable mode, False = spring mode (return to desired position)
-
-if(movable_mode):
-    D = D_movable
-    K = K_movable
-else:
-    D = D_spring
-    K = K_spring
 
 obstacle_pos_x = -3.5
 obstacle_pos_y = -1.3
@@ -168,7 +160,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     #K_s = 100
 
     f = getForceFunction()  # get the force from the robot or simulation
-    f_denoised = denoiseForce(f, threshold=0.5)
+    f_denoised = denoiseForce(f, thresholdForce=2.0, thresholdTorque=0.5) # Newton
     # Keep force in local frame for end-effector frame admittance control
     #elif controlLoopFunction.iteration % 100 == 0:
         #print("f", f)
@@ -416,12 +408,9 @@ def admittance_control(robot, J, f_local):
     """
     Admittance control in end-effector frame
     Supports two modes:
-    - Spring mode (movable_mode=False): Returns to ee_position_desired like a spring
-    - Movable mode (movable_mode=True): Stays where moved by forces, no return spring
     """
     global ee_position_desired
     global ee_position
-    global movable_mode
 
     dt = robot.dt
 
@@ -434,10 +423,6 @@ def admittance_control(robot, J, f_local):
     # Transform positions to end-effector frame for consistent computation
     T_w_e = robot.computeT_w_e(robot.q)
     R_w_e = T_w_e.rotation
-
-    if movable_mode:#TODO rotation suppression here
-        pass
-        # In movable mode, update desired position based on current position and velocity
 
     # Spring mode: transform desired position to local frame for spring behavior
     ee_position_desired_local = np.zeros_like(ee_position_desired)
@@ -491,17 +476,13 @@ def admittance_control(robot, J, f_local):
     p_reference_local = x1 + ee_position_desired_local
     p_dot_reference_local = x2 + vel_desired_local
 
-    if movable_mode:
-        # Movable mode: no position feedback, only velocity from admittance dynamics
-        vel_ref_local = p_dot_reference_local
-    else:
-        # Spring mode: position feedback to return to desired position
-        position_feedback = K_p @ p_reference_local
-        # Check for numerical issues in position feedback
-        if np.any(np.isnan(position_feedback)) or np.any(np.isinf(position_feedback)):
-            print("Warning: Invalid position feedback, resetting to zero")
-            position_feedback = np.zeros_like(position_feedback)
-        vel_ref_local = p_dot_reference_local + position_feedback
+    # Spring mode: position feedback to return to desired position
+    position_feedback = K_p @ p_reference_local
+    # Check for numerical issues in position feedback
+    if np.any(np.isnan(position_feedback)) or np.any(np.isinf(position_feedback)):
+        print("Warning: Invalid position feedback, resetting to zero")
+        position_feedback = np.zeros_like(position_feedback)
+    vel_ref_local = p_dot_reference_local + position_feedback
     
     # Final safety check on output velocity
     if np.any(np.isnan(vel_ref_local)) or np.any(np.isinf(vel_ref_local)):
@@ -511,9 +492,6 @@ def admittance_control(robot, J, f_local):
     # Limit final output velocity
     max_output_vel = 2.0  # Adjust as needed
     #vel_ref_local = np.clip(vel_ref_local, -max_output_vel, max_output_vel)
-
-    #print("p_reference_local ", p_reference_local[:3])
-    #print("movable_mode:", movable_mode)
 
     global logs
     logs["x1s"].append(x1.copy())
@@ -549,15 +527,18 @@ def forceFromTorques(f):
     return f
 
 
-def denoiseForce(f, threshold=0.5):
+def denoiseForce(f, thresholdForce, thresholdTorque):
     # Low pass filter with cutoff ~10Hz
     alpha = 0.1 # smoothing factor
     f_denoised = alpha*f + (1-alpha)*denoiseForce.last_f
     denoiseForce.last_f = f_denoised.copy()
 
     # Zero out components below threshold
-    for i in range(len(f)):
-        if abs(f[i]) < threshold:
+    for i in range(3):
+        if abs(f[i]) < thresholdForce:
+            f_denoised[i] = 0.0
+    for i in range(3,6):
+        if abs(f[i]) < thresholdTorque:
             f_denoised[i] = 0.0
     return f_denoised
 
