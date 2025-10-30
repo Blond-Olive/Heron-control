@@ -445,8 +445,7 @@ def admittance_control(robot, J, f_local):
     
     # For orientation: compute rotation error in local frame
     R_w_e_desired = pin.exp3(ee_position_desired[3:])
-    R_w_e_current = T_w_e.rotation
-    R_error = R_w_e_current.T @ R_w_e_desired  # Rotation from current to desired in local frame
+    R_error = R_w_e.T @ R_w_e_desired  # Rotation from current to desired in local frame
     ee_position_desired_local[3:] = pin.log3(R_error)
     
     # Transform desired velocity to local frame
@@ -582,6 +581,42 @@ def ensure_rot_vec_continuity(curr, prev):
             return flipped
     return curr
     
+def global_to_local_vector(vector_global, T_w_e):
+    R_w_e = T_w_e.rotation
+    vec_local = np.zeros_like(vector_global)
+    vec_local[:3] = R_w_e.T @ vector_global[:3]
+    vec_local[3:] = R_w_e.T @ vector_global[3:]
+    return vec_local
+
+def local_to_global_vector(vector_local, T_w_e):
+    """
+    Convert a 6D vector (translation[3], rotation_vector[3]) from end-effector local frame
+    to world/global frame. R_w_e is the world <- ee rotation matrix (robot.computeT_w_e(...).rotation).
+    """
+    R_w_e = T_w_e.rotation
+    vec_global = np.zeros_like(vector_local)
+    # linear part
+    vec_global[:3] = R_w_e @ vector_local[:3]
+    # angular/rotation-vector part (rotate the axis)
+    vec_global[3:] = R_w_e @ vector_local[3:]
+    return vec_global
+
+def global_to_local_point(point_global, T_w_e):
+    R_w_e = T_w_e.rotation
+    t_w_e = T_w_e.translation
+    point_local = np.zeros_like(point_global)
+    point_local[:3] = R_w_e.T @ (point_global - t_w_e)
+    point_local[3:] = R_w_e.T @ point_global[3:]  # rotation vector part unchanged
+    return point_local
+
+def local_to_global_point(point_local, T_w_e):
+    point_global = np.zeros_like(point_local)
+    R_w_e = T_w_e.rotation
+    t_w_e = T_w_e.translation
+    point_global[:3] = R_w_e @ (point_local[:3] + t_w_e) #TODO Is this correct?
+    point_global[3:] = R_w_e @ point_local[3:]  # rotation vector part unchanged    
+    return point_global
+
 
 def savelogs():
     print("Saving logs to phri_log.mat...")
