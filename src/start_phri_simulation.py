@@ -49,7 +49,7 @@ def key_listener():
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setcbreak(fd)  # less invasive than setraw()
-        print("[INFO] Key listener active. Press Ctrl+C to exit.")
+        print("[INFO] Key listener active. Press C to exit.")
         while True:
             ch = sys.stdin.read(1)  # blocking read of one key
             if ch == 'c':  # Ctrl-C
