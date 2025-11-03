@@ -15,12 +15,12 @@ import scipy.io as sio
 
 ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-K = np.diag([25, 25, 25, 10, 10, 10])
+K = np.diag([0, 0, 0, 10, 10, 10]) # Only spring for rotational part
 M = np.diag([1, 1, 1, 0.2, 0.2, 0.2])  # Mass/inertia for admittance control
 
 damping_ratio = 2
 D = damping_ratio*2*np.sqrt(M@K)# Very low stiffness for movable mode
-K_p = np.diag([1, 1, 1, 0.5, 0.5, 0.5])
+K_p = np.diag([0, 0, 0, 0.5, 0.5, 0.5])
 
 t = 0
 goincircle = False
@@ -162,7 +162,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     # Keep force in local frame for end-effector frame admittance control
     #elif controlLoopFunction.iteration % 100 == 0:
         #print("f", f)
-    #f = forceFromTorques(f)
+    f = forceFromTorques(f)
     
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
@@ -441,7 +441,7 @@ def admittance_control(robot, J, f_local):
     # Compute admittance dynamics with numerical safety
     # Always include spring term, but K varies by mode (high vs very low stiffness)
     #force_term = f_local - D@x2 - K@x1
-    force_term = f_local - D@x2
+    force_term = f_local - D@x2 - K@x1
     # Check for numerical issues and clip values
     if np.any(np.isnan(force_term)) or np.any(np.isinf(force_term)):
         print("Warning: Invalid force term, resetting to zero")
@@ -476,17 +476,14 @@ def admittance_control(robot, J, f_local):
     p_dot_reference_local = x2 + vel_desired_local
 
     
-    # Movable mode: no position feedback, only velocity from admittance dynamics
-    vel_ref_local = p_dot_reference_local
-    """if spring:
-        # Spring mode: position feedback to return to desired position
-        position_feedback = K_p @ p_reference_local
-        # Check for numerical issues in position feedback
-        if np.any(np.isnan(position_feedback)) or np.any(np.isinf(position_feedback)):
-            print("Warning: Invalid position feedback, resetting to zero")
-            position_feedback = np.zeros_like(position_feedback)
-        vel_ref_local = p_dot_reference_local + position_feedback
-    """
+    # Spring mode: position feedback to return to desired position
+    position_feedback = K_p @ p_reference_local
+    # Check for numerical issues in position feedback
+    if np.any(np.isnan(position_feedback)) or np.any(np.isinf(position_feedback)):
+        print("Warning: Invalid position feedback, resetting to zero", ee_position_desired)
+        position_feedback = np.zeros_like(position_feedback)
+    vel_ref_local = p_dot_reference_local + position_feedback
+
     # Final safety check on output velocity
     if np.any(np.isnan(vel_ref_local)) or np.any(np.isinf(vel_ref_local)):
         print("Warning: Invalid output velocity, resetting to zero")
@@ -496,8 +493,6 @@ def admittance_control(robot, J, f_local):
     max_output_vel = 2.0  # Adjust as needed
     #vel_ref_local = np.clip(vel_ref_local, -max_output_vel, max_output_vel)
 
-    #print("p_reference_local ", p_reference_local[:3])
-    #print("movable_mode:", movable_mode)
 
     global logs
     logs["x1s"].append(x1.copy())
