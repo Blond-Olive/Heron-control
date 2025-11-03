@@ -18,9 +18,9 @@ ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 K = np.diag([25, 25, 25, 10, 10, 10])
 M = np.diag([1, 1, 1, 0.2, 0.2, 0.2])  # Mass/inertia for admittance control
 
-damping_ratio = 4
+damping_ratio = 2
 D = damping_ratio*2*np.sqrt(M@K)# Very low stiffness for movable mode
-K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
+K_p = np.diag([1, 1, 1, 0.5, 0.5, 0.5])
 
 t = 0
 goincircle = False
