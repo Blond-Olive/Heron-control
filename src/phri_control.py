@@ -16,7 +16,7 @@ import scipy.io as sio
 
 ee_position = np.array([0.0, 0.0, 0.0])
 
-K_rot = np.diag([0.1, 0.1, 0.1]) # Only spring for rotational part
+K_rot = np.diag([1, 1, 1]) # Only spring for rotational part
 M = np.diag([1, 1, 1])  # Mass/inertia for admittance control
 
 damping_ratio = 2
@@ -144,9 +144,6 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     vel_ref = admittance_control(robot, J, f_denoised)
 
     v_rot = ee_rotation_control(robot)
-
-    if(np.linalg.norm(v_rot) > 0.1):
-        print("Warning: High rotation velocity:", v_rot)
 
     vel_ref = np.concatenate([vel_ref, v_rot])
     
@@ -450,15 +447,23 @@ def ee_rotation_control(robot):
     
     T_w_e = robot.computeT_w_e(robot.q)
     ee_rotation = pin.log3(T_w_e.rotation)
-
-
     ee_rotation = ensure_rot_vec_continuity(ee_rotation, controlLoopFunction.prev_rot_vec)
     controlLoopFunction.prev_rot_vec = ee_rotation.copy()
 
-    rot_err = ee_rotation - ee_rotation_desired 
+    ee_rotation_desired_mat = pin.exp3(ee_rotation_desired)
+    ee_rotation_desired_local_mat = T_w_e.rotation.T@ee_rotation_desired_mat
+    ee_rotation_desired_local = pin.log3(ee_rotation_desired_local_mat)
     
-    v_rot = -K_rot @ rot_err
-    v_rot_local = T_w_e.rotation.T @ v_rot
+    ee_rotation_local_mat = T_w_e.rotation.T@T_w_e.rotation
+    ee_rotation_local = pin.log3(ee_rotation_local_mat)
+
+
+    
+
+    rot_err = ee_rotation_local - ee_rotation_desired_local
+    if controlLoopFunction.iteration % 250 == 0:
+        print("ee_rotation_local is not zero:", ee_rotation_local,"\n rot_glob", ee_rotation,"\nrot_des_loc", ee_rotation_desired_local,"\n rot_des glob", ee_rotation_desired,"\n", T_w_e.rotation.T, "\n",rot_err)
+    v_rot_local = -K_rot @ rot_err
 
     return v_rot_local
 
