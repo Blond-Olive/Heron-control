@@ -457,12 +457,7 @@ def ee_rotation_control(robot):
     ee_rotation_local_mat = T_w_e.rotation.T@T_w_e.rotation
     ee_rotation_local = pin.log3(ee_rotation_local_mat)
 
-
-    
-
     rot_err = ee_rotation_local - ee_rotation_desired_local
-    if controlLoopFunction.iteration % 250 == 0:
-        print("ee_rotation_local is not zero:", ee_rotation_local,"\n rot_glob", ee_rotation,"\nrot_des_loc", ee_rotation_desired_local,"\n rot_des glob", ee_rotation_desired,"\n", T_w_e.rotation.T, "\n",rot_err)
     v_rot_local = -K_rot @ rot_err
 
     return v_rot_local
