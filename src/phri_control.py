@@ -13,18 +13,17 @@ import termios
 import tty
 import scipy.io as sio
 
-ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-K_rot = np.diag([0, 0, 0, 10, 10, 10]) # Only spring for rotational part
-M = np.diag([1, 1, 1, 0.2, 0.2, 0.2])  # Mass/inertia for admittance control
+ee_position = np.array([0.0, 0.0, 0.0])
+
+K_rot = np.diag([0.1, 0.1, 0.1]) # Only spring for rotational part
+M = np.diag([1, 1, 1])  # Mass/inertia for admittance control
 
 damping_ratio = 2
-D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
-D = np.diag([20, 20, 20, D_rot[0][0], D_rot[1][1], D_rot[2][2]])
+#D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
+D = np.diag([20, 20, 20])
 
-K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
-
-
+K_p = np.diag([3, 3, 3])
 
 t = 0
 goincircle = False
@@ -38,6 +37,7 @@ logs = {
     "dqs": [],
     "v_cmd": [],
     "f": [],
+    "f_2": [],
     "x1s": [],
     "x2s": [],
     "x2dots": [],
@@ -59,14 +59,14 @@ def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
     global getForceFunction
     getForceFunction = getForce
 
-    global ee_position_desired
+    global ee_position_desired, ee_rotation_desired
     
     ee_position_desired = None
-    #ee_position_desired_old = ee_position_desired.copy()
+    ee_rotation_desired = None
 
     global x1, x2, vel_desired
-    vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    x1 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) # pos reference - position desired = 0
+    vel_desired = np.array([0.0, 0.0, 0.0])
+    x1 = np.array([0.0, 0.0, 0.0]) # pos reference - position desired = 0
     x2 = vel_desired
 
     controlLoop = partial(controlLoopFunction, args, robot)
@@ -111,7 +111,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     robot.v_ee = v
     J = pin.computeFrameJacobian(robot.model, robot.data, q, robot.ee_frame_id, pin.ReferenceFrame.LOCAL)
 
-    global ee_position_desired, t, vel_desired, goincircle
+    global ee_position_desired, ee_rotation_desired, t, vel_desired, goincircle
 
     T_w_e = robot.computeT_w_e(robot.q)
     
@@ -119,111 +119,52 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     if not hasattr(controlLoopFunction, 'prev_rot_vec'):
         controlLoopFunction.prev_rot_vec = pin.log3(T_w_e.rotation)
 
-    current_rot_vec = pin.log3(T_w_e.rotation)
+    ee_position = T_w_e.translation.copy()
+    ee_rotation = pin.log3(T_w_e.rotation)
 
-    current_rot_vec = ensure_rot_vec_continuity(current_rot_vec, controlLoopFunction.prev_rot_vec)
-
-    controlLoopFunction.prev_rot_vec = current_rot_vec
-    ee_position = np.concatenate([T_w_e.translation, current_rot_vec])
-    
     if(ee_position_desired is None):
         ee_position_desired = ee_position.copy()
+    if(ee_rotation_desired is None):
+        ee_rotation_desired = ee_rotation.copy()
     
 
-    """if(goincircle): 
-        degrees_per_second = 30
-        radius = 0.1
-        inner = robot.dt*np.pi/180 *degrees_per_second
-        ee_pos_des_old = ee_position_desired.copy()
-        ee_position_desired = ee_position_desired_old + radius * np.array([np.cos(t*inner), np.sin(t*inner), 0, 0, 0, 0])
-        vel_desired = radius * np.array([-np.sin(t*inner)*inner/robot.dt, np.cos(t*inner)*inner/robot.dt, 0, 0, 0, 0])
-        t += 1
-    else:
-        ee_position_desired = ee_position_desired_old
-        vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        #f = np.array([0, 0, 0, 0, 0, 0])
 
-    translation = force_pull_position[:3] #np.array([obstacle_pos_x, obstacle_pos_y, 0]) 
-    rotation = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-    vis_pos = pin.SE3(rotation, translation)
-    obs_pos=[obstacle_pos_x, obstacle_pos_y, 0.0]
-
-    #robot.visualizer_manager.sendCommand({"obstacle_sphere": (0.5, [obstacle_pos_x, obstacle_pos_y, 0.0])}) #radius, [red, green , blue], 0.5 is one block
-
-    robot.visualizer_manager.sendCommand({"Mgoal": vis_pos})
-    
-    K_s = 100
-    f = -K_s * (ee_position - force_pull_position)
-    f += generateNoise(0.1, 6)
-
-    f += f_add
-        #f = np.array([0, 0, 0, 0, 0, 0])"""
-    
     #K_s = 100
 
-    f = getForceFunction()  # get the force from the robot or simulation
+    f, f_2 = getForceFunction()  # get the force from the robot or simulation
     f_denoised = denoiseForce(f,2,0.5)
     # Keep force in local frame for end-effector frame admittance control
     #elif controlLoopFunction.iteration % 100 == 0:
         #print("f", f)
     #f = forceFromTorques(f)
+    f_denoised = f_denoised[:3]  # ignore torques for now
     
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
     vel_ref = admittance_control(robot, J, f_denoised)
 
+    v_rot = ee_rotation_control(robot)
+
+    if(np.linalg.norm(v_rot) > 0.1):
+        print("Warning: High rotation velocity:", v_rot)
+
+    vel_ref = np.concatenate([vel_ref, v_rot])
+    
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
-    #if controlLoopFunction.iteration % 200 == 0:
-        #print("f", f)
-        
-
-    
-    #if controlLoopFunction.iteration % 100 == 0:
-        #print("x1 ", x1)
-
-
     v_cmd[:3] = np.array([0.0, 0.0, 0.0])
-    #v_cmd[8] = 0.0
-    #v_cmd=np.array([0,0,0,0,0,0,0,0,0])
-        #print("logs saved")
-    #base_pos = q[:3]
-    # Only use translation part for move_towards
-    #new_base_vel = move_towards(base_pos, ee_position[:3], 0.33, dt=robot.dt)
-    #base_vel = np.zeros(6)
-    #base_vel[:3] = new_base_vel
-    # print(J)
-    # delete the second columm of Jacobian matrix, cuz y_dot is always 0
-    # J[:, 1] = 1e-6
-    #print(robot.q)
-    #v_cmd= np.zeros(robot.nv)
-    #v_cmd_base = base_only_ik(1e-3, q, J, base_vel, robot)
-    #v_cmd = manipulator_only_ik(1e-3, q, J, vel_ref, robot)
-    #v_cmd = simple_ik(1e-3, q, J, vel_ref, robot)
-    #v_cmd[:3] = v_cmd_base[:3]
-
-
-    """
-    if np.linalg.norm(f) > 0.1 and np.linalg.norm([force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0])]) > 0.1:
-        #goal_angle = -np.arctan2(f[1], f[0])
-        goal_angle = -np.arctan2(force_pull_position[1] - ee_position_desired_old[1], -(force_pull_position[0] - ee_position_desired_old[0]))
-        current_angle = np.arctan2(q[3], q[2])
-        if goal_angle - current_angle > np.pi/2:
-            goal_angle -= np.pi
-        elif goal_angle - current_angle < -np.pi/2:
-            goal_angle += np.pi
-        angle_command = 0.5*(goal_angle - current_angle)
-        v_cmd[2] = angle_command
-        v_cmd[3] -= angle_command"""
-
-    #v_cmd = np.zeros_like(v_cmd)
 
     robot.sendVelocityCommand(v_cmd)
 
     global logs
     logs["qs"].append(q.copy())
     logs["v_cmd"].append(v_cmd.copy())
-    logs["f"].append(f_denoised.copy())
+    logs["f"].append(f.copy())
+    logs["f_2"].append(f_2.copy())
+    logs["vel_refs"].append(vel_ref.copy())
+    logs["ee_positions"].append(np.concatenate([ee_position.copy(), ee_rotation.copy()]))
+    logs["ee_positions_desired"].append(np.concatenate([ee_position_desired.copy(), ee_rotation_desired.copy()]))
+    
 
     return breakFlag, save_past_item, log_item
 
@@ -429,23 +370,16 @@ def admittance_control(robot, J, f_local):
     R_w_e = T_w_e.rotation
 
     # Spring mode: transform desired position to local frame for spring behavior
-    ee_position_desired_local = np.zeros_like(ee_position_desired)
-    ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
-    
-    # For orientation: compute rotation error in local frame
-    R_w_e_desired = pin.exp3(ee_position_desired[3:])
-    R_error = R_w_e.T @ R_w_e_desired  # Rotation from current to desired in local frame
-    ee_position_desired_local[3:] = pin.log3(R_error)
+    ee_position_desired_local = R_w_e.T @ (ee_position_desired - T_w_e.translation)
     
     # Transform desired velocity to local frame
     vel_desired_local = np.zeros_like(vel_desired) # !! vel_desired is currently zero!!
-    vel_desired_local[:3] = R_w_e.T @ vel_desired[:3]
-    vel_desired_local[3:] = R_w_e.T @ vel_desired[3:]
+    vel_desired_local = R_w_e.T @ vel_desired
 
     # Compute admittance dynamics with numerical safety
     # Always include spring term, but K varies by mode (high vs very low stiffness)
     #force_term = f_local - D@x2 - K@x1
-    force_term = f_local - D@x2 - K_rot@x1
+    force_term = f_local - D@x2 #- K_rot@x1
     # Check for numerical issues and clip values
     if np.any(np.isnan(force_term)) or np.any(np.isinf(force_term)):
         print("Warning: Invalid force term, resetting to zero")
@@ -486,7 +420,7 @@ def admittance_control(robot, J, f_local):
         print("Warning: Invalid position feedback, resetting to zero")
         position_feedback = np.zeros_like(position_feedback)
 
-    vel_ref_local = p_dot_reference_local + position_feedback
+    vel_ref_local = p_dot_reference_local #+ position_feedback
 
     # Final safety check on output velocity
     if np.any(np.isnan(vel_ref_local)) or np.any(np.isinf(vel_ref_local)):
@@ -497,16 +431,12 @@ def admittance_control(robot, J, f_local):
     max_output_vel = 2.0  # Adjust as needed
     #vel_ref_local = np.clip(vel_ref_local, -max_output_vel, max_output_vel)
 
-
     global logs
     logs["x1s"].append(x1.copy())
     logs["x2s"].append(x2.copy())
     logs["x2dots"].append(x2_dot.copy())
     logs["p_refs"].append(p_reference_local.copy())
     logs["p_dot_refs"].append(p_dot_reference_local.copy())
-    logs["vel_refs"].append(vel_ref_local.copy())
-    logs["ee_positions"].append(ee_position.copy())
-    logs["ee_positions_desired"].append(ee_position_desired_local.copy())
     logs["force_terms"].append(force_term.copy())
     
     if np.linalg.norm(vel_ref_local) > 3.0:
@@ -514,6 +444,23 @@ def admittance_control(robot, J, f_local):
         vel_ref_local = np.zeros_like(vel_ref_local)
 
     return vel_ref_local
+
+def ee_rotation_control(robot):
+    global ee_rotation_desired, K_rot
+    
+    T_w_e = robot.computeT_w_e(robot.q)
+    ee_rotation = pin.log3(T_w_e.rotation)
+
+
+    ee_rotation = ensure_rot_vec_continuity(ee_rotation, controlLoopFunction.prev_rot_vec)
+    controlLoopFunction.prev_rot_vec = ee_rotation.copy()
+
+    rot_err = ee_rotation - ee_rotation_desired 
+    
+    v_rot = -K_rot @ rot_err
+    v_rot_local = T_w_e.rotation.T @ v_rot
+
+    return v_rot_local
 
 def forceFromTorques(f):
     """

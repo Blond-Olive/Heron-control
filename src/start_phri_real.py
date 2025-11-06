@@ -58,7 +58,17 @@ if __name__ == "__main__":
         corrected_wrench[3] = raw_wrench[3]   # Torque X unchanged
         corrected_wrench[4] = raw_wrench[5]  # Torque Y = -sensor_torque_Z
         corrected_wrench[5] = -raw_wrench[4]   # Torque Z = sensor_torque_Y
-        return corrected_wrench
+
+        """ corrected_wrench_2 = corrected_wrench.copy()
+        gravityMagnitude = 4  # approximate gravity force magnitude in Newtons
+        gravity_global = np.array([0, 0, -gravityMagnitude, 0, 0, 0])
+        T_w_e = robot.computeT_w_e(robot.q)
+        gravity_local = T_w_e.rotation.T @ gravity_global[:3]
+        corrected_wrench_2[:3] += gravity_local
+        print(gravity_local)
+        corrected_wrench_2[0] -= gravityMagnitude  # approximate gravity compensation"""
+    
+        return corrected_wrench, corrected_wrench
 
     getForceFunction = partial(getForce, robot)
     loop = move(args, robot, getForceFunction, run=False)
