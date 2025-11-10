@@ -13,20 +13,19 @@ import termios
 import tty
 import scipy.io as sio
 
+ee_position = np.array([0.0, 0.0, 0.0, 0.0])
 
-ee_position = np.array([0.0, 0.0, 0.0])
-
-K_rot = np.diag([1, 1, 1]) # Only spring for rotational part
-M = np.diag([10, 10, 10])  # Mass/inertia for admittance control
+K_rot = np.diag([0, 1, 1]) # Only spring for rotational part
+M = np.diag([10, 10, 10, 5])  # Mass/inertia for admittance control
 # when M was 1, 1, 1 it made oscillations worse
 
 damping_ratio = 2
 #D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
-D = np.diag([20, 20, 20])
+D = np.diag([20, 20, 20, 20])
 base_weight = 0.3
 W=np.diag([0.25, 1, 1, 1, 1, 1, 1, 1])
 
-K_p = np.diag([3, 3, 3])
+K_p = np.diag([3, 3, 3, 1])
 
 t = 0
 goincircle = False
@@ -67,8 +66,8 @@ def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
     ee_rotation_desired = None
 
     global x1, x2, vel_desired
-    vel_desired = np.array([0.0, 0.0, 0.0])
-    x1 = np.array([0.0, 0.0, 0.0]) # pos reference - position desired = 0
+    vel_desired = np.array([0.0, 0.0, 0.0, 0.0])
+    x1 = np.array([0.0, 0.0, 0.0, 0.0]) # pos reference - position desired = 0
     x2 = vel_desired
 
     controlLoop = partial(controlLoopFunction, args, robot)
@@ -139,14 +138,14 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     #elif controlLoopFunction.iteration % 100 == 0:
         #print("f", f)
     #f = forceFromTorques(f)
-    f_denoised = f_denoised[:3]  # ignore torques for now
+    f_denoised = f_denoised[:4]  # ignore torques for now
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
     vel_ref = admittance_control(robot, J, f_denoised)
 
     v_rot = ee_rotation_control(robot)
 
-    vel_ref = np.concatenate([vel_ref, v_rot])
+    vel_ref = np.concatenate([vel_ref, v_rot[1:]])
     
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
@@ -366,11 +365,22 @@ def admittance_control(robot, J, f_local):
     R_w_e = T_w_e.rotation
 
     # Spring mode: transform desired position to local frame for spring behavior
-    ee_position_desired_local = R_w_e.T @ (ee_position_desired - T_w_e.translation)
+    ee_position_desired_local = np.zeros(4)#+1 DoF  to give admittnace around x-axis
+    ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
+    ee_rotation = pin.log3(T_w_e.rotation)
+
+    ee_rotation_desired_mat = pin.exp3(ee_rotation_desired)
+    ee_rotation_desired_local_mat = T_w_e.rotation.T@ee_rotation_desired_mat
+    ee_rotation_desired_local = pin.log3(ee_rotation_desired_local_mat)
+    ee_position_desired_local[3] = ee_rotation_desired_local[0]
     
     # Transform desired velocity to local frame
     vel_desired_local = np.zeros_like(vel_desired) # !! vel_desired is currently zero!!
-    vel_desired_local = R_w_e.T @ vel_desired
+    vel_desired_local[:3] = R_w_e.T @ vel_desired[:3]
+    vel_desired_temp_rot = np.zeros(3)
+    vel_desired_temp_rot_local = R_w_e.T @ vel_desired_temp_rot
+    vel_desired_local[3] = vel_desired_temp_rot_local[0]
+
 
     # Compute admittance dynamics with numerical safety
     # Always include spring term, but K varies by mode (high vs very low stiffness)
