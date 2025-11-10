@@ -17,13 +17,14 @@ import scipy.io as sio
 ee_position = np.array([0.0, 0.0, 0.0])
 
 K_rot = np.diag([1, 1, 1]) # Only spring for rotational part
-M = np.diag([1, 1, 1])  # Mass/inertia for admittance control
+M = np.diag([10, 10, 10])  # Mass/inertia for admittance control
+# when M was 1, 1, 1 it made oscillations worse
 
 damping_ratio = 2
 #D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
 D = np.diag([20, 20, 20])
 base_weight = 0.3
-W=np.diag([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+W=np.diag([0.25, 1, 1, 1, 1, 1, 1, 1])
 
 K_p = np.diag([3, 3, 3])
 
@@ -149,7 +150,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
-    v_cmd[:3] = v_cmd[:3] * 0.5  # scale base velocities down
+    #v_cmd[:3] = v_cmd[:3] * 0.5  # scale base velocities down
 
     robot.sendVelocityCommand(v_cmd)
 
@@ -218,7 +219,9 @@ def ik_with_nullspace(
     # if J.shape[0] >= 3:
     #     J[0:3, :] = 0.0
     J = np.delete(J, 1, axis=1)
-    J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
+    W_inv = np.linalg.inv(W)
+    #J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
+    J_pseudo = W_inv@J.T @ np.linalg.inv(J @ W_inv @J.T + np.eye(J.shape[0]) * tikhonov_damp)
     qd_task = J_pseudo @ err_vector  # primary task velocity
 
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
