@@ -14,18 +14,19 @@ import tty
 import scipy.io as sio
 
 ee_position = np.array([0.0, 0.0, 0.0, 0.0])
+f_list=[]
 
 K_rot = np.diag([0, 1, 1]) # Only spring for rotational part
-M = np.diag([10, 10, 10, 5])  # Mass/inertia for admittance control
+M = np.diag([10, 10, 10, 0.05])  # Mass/inertia for admittance control
 # when M was 1, 1, 1 it made oscillations worse
 
 damping_ratio = 2
 #D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
-D = np.diag([20, 20, 20, 20])
+D = np.diag([20, 20, 20, 4])
 base_weight = 0.3
-W=np.diag([0.25, 1, 1, 1, 1, 1, 1, 1])
+W=np.diag([0.25, 1, 1, 1, 1, 1, 0.25, 1])
 
-K_p = np.diag([3, 3, 3, 1])
+K_p = np.diag([3, 3, 3, 2])
 
 t = 0
 goincircle = False
@@ -96,7 +97,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
 
     controlLoopFunction.iteration = getattr(controlLoopFunction, 'iteration', 0) + 1
 
-    global ee_position
+    global ee_position, f_list
     breakFlag = False
     log_item = {}
     save_past_item = {}
@@ -147,8 +148,16 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
 
     vel_ref = np.concatenate([vel_ref, v_rot[1:]])
     
-    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
-
+    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot, f_denoised)
+    """f_list.append(f[:3])
+    if controlLoopFunction.iteration % 260 == 0 and controlLoopFunction.iteration > 1:
+        f_array = np.array(f_list[f_list.__len__()-250:f_list.__len__()])
+        f_var = np.var(f_array, ddof=3)
+        print("Variance of force over last 250 iterations:", f_var)
+        if f_var < 2:
+            print("Low variance detected, resseting F/T sensor")
+            robot.zeroFtSensor()
+        f_list = []"""
     #v_cmd[:3] = v_cmd[:3] * 0.5  # scale base velocities down
 
     robot.sendVelocityCommand(v_cmd)
@@ -212,6 +221,7 @@ def ik_with_nullspace(
     J,
     err_vector,
     robot,
+    f,
 ):
     # (Optional) If you also want to remove any direct task-space coupling
     # to base translational directions, you could zero the first 3 rows:
@@ -224,32 +234,35 @@ def ik_with_nullspace(
     qd_task = J_pseudo @ err_vector  # primary task velocity
 
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
-    #z2 = sec_objective_rotate_base(q,robot, qd_task)
+    z2 = sec_objective_rotate_base(q,robot, qd_task, f)
     #z3 = sec_objective_obstacle_avoidance(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1) #+ z2 + z3)
+    qd_null = N @ (z1)#+ z2) #+ z3)
     #qd = np.insert(qd_task, 1, 0.0)  # re‑insert the removed DoF
     qd = np.insert(qd_task + qd_null, 1, 0.0)
     return qd
 
 
-def sec_objective_rotate_base(q,robot, qd_task,
-                            Kp_theta: float = 1.0,  # proportional gain for theta
+def sec_objective_rotate_base(q,robot, qd_task,f,
+                            Kp_theta: float = 0.1,  # proportional gain for theta
                             Ki_theta: float = 0.05,  # integral gain for theta
-                            integral_limit: float = np.pi):  # anti‑wind‑up saturation)
+                            integral_limit: float = np.pi):  # anti‑wind‑up saturation limit):
     z2 = np.zeros(8)
 
     # EE velocity direction and base heading direction
     global ee_position_desired_old, force_pull_position
-    dir_force = np.array([force_pull_position[0] - ee_position_desired_old[0], force_pull_position[1] - ee_position_desired_old[1]])
-    dir_base = np.array([q[2], q[3]])
 
     T_w_e = robot.computeT_w_e(robot.q)
+    f[:3]=T_w_e.rotation @ f[:3]  # transform force to world frame
+    dir_force = np.array([f[0], f[1]])
+    dir_base = np.array([q[2], q[3]])
+
+    """T_w_e = robot.computeT_w_e(robot.q)
     distance_ee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
-    dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
+    dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])"""
 
     def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
         """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
@@ -268,12 +281,13 @@ def sec_objective_rotate_base(q,robot, qd_task,
         return angle
 
 
-    weight_ee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_ee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
+    """weight_ee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_ee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
     weight_force = 1.0 - weight_ee
 
     theta_err_force = angle_between_vectors(dir_force, dir_base)
     theta_err_vee = angle_between_vectors(dir_ee, dir_base)
-    theta_err = weight_force * theta_err_force + weight_ee * theta_err_vee
+    theta_err = weight_force * theta_err_force + weight_ee * theta_err_vee"""
+    theta_err = angle_between_vectors(dir_force, dir_base)
 
     # --------------------- theta integral control -------------------- #
     # Persistent (static) accumulator stored on the function object
