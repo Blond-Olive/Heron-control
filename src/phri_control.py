@@ -17,11 +17,12 @@ import scipy.io as sio
 ee_position = np.array([0.0, 0.0, 0.0])
 
 K_rot = np.diag([1, 1, 1]) # Only spring for rotational part
-M = np.diag([1, 1, 1])  # Mass/inertia for admittance control
+M = np.diag([10, 10, 10])  # Mass/inertia for admittance control
 
 damping_ratio = 2
 #D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
 D = np.diag([20, 20, 20])
+W=np.diag([0.25, 1, 1, 1, 1, 1, 1, 1])
 
 K_p = np.diag([3, 3, 3])
 
@@ -138,7 +139,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
         #print("f", f)
     #f = forceFromTorques(f)
     f_denoised = f_denoised[:3]  # ignore torques for now
-    
+    #f = f[:3]
     #f_local += np.array([-20, 0.0, 0.0, 0.0, 0.0, 0.0])  # bias if needed
 
     vel_ref = admittance_control(robot, J, f_denoised)
@@ -149,15 +150,13 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
-    v_cmd[:3] = np.array([0.0, 0.0, 0.0])
-
     robot.sendVelocityCommand(v_cmd)
 
     global logs
     logs["qs"].append(q.copy())
     logs["v_cmd"].append(v_cmd.copy())
     logs["f"].append(f.copy())
-    logs["f_2"].append(f_2.copy())
+    logs["f_2"].append(f_denoised.copy())
     logs["vel_refs"].append(vel_ref.copy())
     logs["ee_positions"].append(np.concatenate([ee_position.copy(), ee_rotation.copy()]))
     logs["ee_positions_desired"].append(np.concatenate([ee_position_desired.copy(), ee_rotation_desired.copy()]))
@@ -212,29 +211,26 @@ def ik_with_nullspace(
     # Remove any control of the base by zeroing the base columns of J.
     # Convention in this code: base DoFs are the first 3 columns (indices 0,1,2).
     # Make a copy so we don't mutate the caller's J unexpectedly.
-    J = J.copy()
-    n_cols = J.shape[1]
-    base_cols = [c for c in (0, 1, 2) if c < n_cols]
-    if base_cols:
-        J[:, base_cols] = 0.0
 
     # (Optional) If you also want to remove any direct task-space coupling
     # to base translational directions, you could zero the first 3 rows:
     # if J.shape[0] >= 3:
     #     J[0:3, :] = 0.0
     J = np.delete(J, 1, axis=1)
-    J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
+    #J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
+    W_inv = np.linalg.inv(W)
+    J_pseudo = W_inv@J.T @ np.linalg.inv(J @ W_inv @J.T + np.eye(J.shape[0]) * tikhonov_damp)
     qd_task = J_pseudo @ err_vector  # primary task velocity
 
-    #z1 = sec_objective_base_distance_to_ee(q, robot, J)
+    z1 = sec_objective_base_distance_to_ee(q, robot, J)
     #z2 = sec_objective_rotate_base(q,robot, qd_task)
     #z3 = sec_objective_obstacle_avoidance(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    #qd_null = N @ (z1 + z2 + z3)
-    qd = np.insert(qd_task, 1, 0.0)#+ qd_null, 1, 0.0)  # re‑insert the removed DoF
+    qd_null = N @ (z1) #+ z2 + z3)
+    qd = np.insert(qd_task + qd_null, 1, 0.0)#+ qd_null, 1, 0.0)  # re‑insert the removed DoF
     return qd
 
 
@@ -300,7 +296,6 @@ def sec_objective_base_distance_to_ee(q, robot, J,
     T_w_e = robot.T_w_e
     (x_ee, y_ee) = (T_w_e.translation[0], T_w_e.translation[1])
 
-    d_target = robot.base2ee  # desired base‑EE distance
     dx, dy = x_ee - x_base, y_ee - y_base
     d_current = np.hypot(dx, dy)
     
@@ -457,12 +452,7 @@ def ee_rotation_control(robot):
     ee_rotation_local_mat = T_w_e.rotation.T@T_w_e.rotation
     ee_rotation_local = pin.log3(ee_rotation_local_mat)
 
-
-    
-
     rot_err = ee_rotation_local - ee_rotation_desired_local
-    if controlLoopFunction.iteration % 250 == 0:
-        print("ee_rotation_local is not zero:", ee_rotation_local,"\n rot_glob", ee_rotation,"\nrot_des_loc", ee_rotation_desired_local,"\n rot_des glob", ee_rotation_desired,"\n", T_w_e.rotation.T, "\n",rot_err)
     v_rot_local = -K_rot @ rot_err
 
     return v_rot_local
@@ -492,10 +482,10 @@ def denoiseForce(f, thresholdForce, thresholdTorque):
 
     # Zero out components below threshold
     for i in range(3):
-        if abs(f[i]) < thresholdForce:
+        if abs(f_denoised[i]) < thresholdForce:
             f_denoised[i] = 0.0
     for i in range(3,6):
-        if abs(f[i]) < thresholdTorque:
+        if abs(f_denoised[i]) < thresholdTorque:
             f_denoised[i] = 0.0
     return f_denoised
 
