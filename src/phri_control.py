@@ -19,7 +19,7 @@ ee_position = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 K = np.diag([25, 25, 25, 10, 10, 10])
 M = np.diag([1, 1, 1, 0.2, 0.2, 0.2])  # Mass/inertia for admittance control
 
-damping_ratio = 2
+damping_ratio = 3
 D = damping_ratio*2*np.sqrt(M@K)
 print(D)
 
