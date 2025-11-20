@@ -30,8 +30,8 @@ t = 0
 goincircle = False
 
 
-obstacle_pos_x = -3.5
-obstacle_pos_y = -1.3
+obstacle_pos_x = -1 #-1 in real, 0 in sim
+obstacle_pos_y = 0 #0 0 in real , -1 in sim
 
 logs = {
     "qs": [],
@@ -148,6 +148,8 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
 
     vel_ref = np.concatenate([vel_ref, v_rot])
     
+    #vel_ref = np.concatenate([vel_ref, np.zeros(3)])  # zero rotational velocity for now
+
     v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
 
     robot.sendVelocityCommand(v_cmd)
@@ -216,20 +218,26 @@ def ik_with_nullspace(
     # to base translational directions, you could zero the first 3 rows:
     # if J.shape[0] >= 3:
     #     J[0:3, :] = 0.0
+    
     J = np.delete(J, 1, axis=1)
     #J_pseudo = J.T @ np.linalg.inv(J @ J.T + np.eye(J.shape[0]) * tikhonov_damp)
     W_inv = np.linalg.inv(W)
     J_pseudo = W_inv@J.T @ np.linalg.inv(J @ W_inv @J.T + np.eye(J.shape[0]) * tikhonov_damp)
     qd_task = J_pseudo @ err_vector  # primary task velocity
 
+    v_rot = ee_rotation_control(robot)
+    v_rot = np.concatenate([np.zeros(3), v_rot])
+    z4 = simple_ik(tikhonov_damp=1e-3, q=q, J=J, err_vector=v_rot, robot=robot)
+
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
     #z2 = sec_objective_rotate_base(q,robot, qd_task)
-    #z3 = sec_objective_obstacle_avoidance(q, robot, J)
+    z3 = sec_objective_obstacle_avoidance(q, robot, J)
+    z2 = sec_objective_base_rotate_to_ee(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1) #+ z2 + z3)
+    qd_null = N @ (z1 + z2 + z3)#+ z3 + z4) #+ z2 + z3)
     qd = np.insert(qd_task + qd_null, 1, 0.0)#+ qd_null, 1, 0.0)  # re‑insert the removed DoF
     return qd
 
@@ -248,22 +256,6 @@ def sec_objective_rotate_base(q,robot, qd_task,
     T_w_e = robot.computeT_w_e(robot.q)
     distance_ee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
     dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
-
-    def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
-        """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
-        if np.linalg.norm(a) < 1e-6 or np.linalg.norm(b) < 1e-6:
-            #print("Warning: zero-length vector in angle calculation")
-            return 0.0
-        a_n = a / np.linalg.norm(a)
-        b_n = b / np.linalg.norm(b)
-        theta_a, theta_b = np.arctan2(a_n[1], a_n[0]), np.arctan2(b_n[1], b_n[0])
-        angle = (theta_a - theta_b + np.pi) % (2.0 * np.pi) - np.pi
-        # fold >90° to keep the control gentle
-        if angle > np.pi / 2:
-            angle -= np.pi
-        if angle < -np.pi / 2:
-            angle += np.pi
-        return angle
 
 
     weight_ee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_ee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
@@ -290,7 +282,7 @@ def sec_objective_rotate_base(q,robot, qd_task,
 
 def sec_objective_base_distance_to_ee(q, robot, J,
                             d_target: float = 0.5,  # desired base‑EE distance [m]
-                            Kp_d: float = 20.0):  # proportional gain for distance
+                            Kp_d: float = 40.0):  # proportional gain for distance
     
     (x_base, y_base, theta_base) = (q[0], q[1], np.arctan2(q[3], q[2]))
     T_w_e = robot.T_w_e
@@ -306,10 +298,26 @@ def sec_objective_base_distance_to_ee(q, robot, J,
     z1 = -Kp_d * Jd.T * (d_current - d_target)
     return z1
 
+def sec_objective_base_rotate_to_ee(q, robot, J,
+                            Kp_r: float = 0.3):  # proportional gain for distance
+    
+    T_w_e = robot.computeT_w_e(robot.q)
+    dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
+    dir_base = np.array([q[2], q[3]])
+    angle_to_ee = np.arctan2(dir_ee[1], dir_ee[0])
+    base_heading = np.arctan2(dir_base[1], dir_base[0])
+    angle_diff = angle_between_vectors(dir_ee, dir_base)
+    z = np.zeros(8) 
+    z[1] = Kp_r * angle_diff
+    print("angle_diff:", angle_diff, "current base heading:", base_heading, "angle to ee:", angle_to_ee)
+
+    return z
+
+
 def sec_objective_obstacle_avoidance(q, robot, J,
                                      Kp_d = 2.5, # proportional gain for distance
-                                     Kp_r = 1.0, # proportional gain for rotation
-                                     distance_threshold = 0.7):  # distance threshold to start avoiding [m]
+                                     Kp_r = 0.1, # proportional gain for rotation
+                                     distance_threshold = 0.3):  # distance threshold to start avoiding [m]
     global obstacle_pos_x, obstacle_pos_y
     
     (x_base, y_base) = (q[0], q[1])
@@ -324,16 +332,16 @@ def sec_objective_obstacle_avoidance(q, robot, J,
     Jbx, Jby = np.zeros_like(Jx), np.zeros_like(Jy)
     Jbx[0], Jby[0] = q[2], q[3]
     Jd = (dx * Jbx + dy * Jby) 
-    z = Kp_d * Jd.T / (distance**2)
+    z = Kp_d * Jd.T / (distance**3)
 
-    # Rotate base away from obstacle
+    """# Rotate base away from obstacle
     angle_to_obstacle = np.arctan2(dy, dx)
     base_heading = np.arctan2(q[3], q[2])
     angle_diff = (angle_to_obstacle - base_heading + np.pi) % (2.0 * np.pi) - np.pi
     if angle_diff > 0:
         z[1] -= Kp_r / distance # turn left
     else:
-        z[1] += Kp_r / distance  # turn right   
+        z[1] += Kp_r / distance  # turn right  """
 
     return z
 
@@ -490,6 +498,22 @@ def denoiseForce(f, thresholdForce, thresholdTorque):
     return f_denoised
 
 denoiseForce.last_f = np.zeros(6)
+
+def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
+        """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
+        if np.linalg.norm(a) < 1e-6 or np.linalg.norm(b) < 1e-6:
+            #print("Warning: zero-length vector in angle calculation")
+            return 0.0
+        a_n = a / np.linalg.norm(a)
+        b_n = b / np.linalg.norm(b)
+        theta_a, theta_b = np.arctan2(a_n[1], a_n[0]), np.arctan2(b_n[1], b_n[0])
+        angle = (theta_a - theta_b + np.pi) % (2.0 * np.pi) - np.pi
+        # fold >90° to keep the control gentle
+        if angle > np.pi / 2:
+            angle -= np.pi
+        if angle < -np.pi / 2:
+            angle += np.pi
+        return angle
 
 def move_towards(p, target, k, dt):
     direction = target - p
