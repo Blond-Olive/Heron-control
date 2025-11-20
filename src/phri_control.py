@@ -299,7 +299,7 @@ def sec_objective_base_distance_to_ee(q, robot, J,
     return z1
 
 def sec_objective_base_rotate_to_ee(q, robot, J,
-                            Kp_r: float = 0.3):  # proportional gain for distance
+                            Kp_r: float = 0.1):  # proportional gain for distance
     
     T_w_e = robot.computeT_w_e(robot.q)
     dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
@@ -315,7 +315,7 @@ def sec_objective_base_rotate_to_ee(q, robot, J,
 
 
 def sec_objective_obstacle_avoidance(q, robot, J,
-                                     Kp_d = 2.5, # proportional gain for distance
+                                     Kp_d = 0.2, # proportional gain for distance
                                      Kp_r = 0.1, # proportional gain for rotation
                                      distance_threshold = 0.3):  # distance threshold to start avoiding [m]
     global obstacle_pos_x, obstacle_pos_y
