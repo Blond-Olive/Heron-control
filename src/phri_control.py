@@ -231,20 +231,20 @@ def ik_with_nullspace(
     z4 = simple_ik(tikhonov_damp=1e-3, q=q, J=J, err_vector=v_rot, robot=robot)
 
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
-    z2 = sec_objective_rotate_base(q,robot, qd_task, f_denoised=f_denoised)
-    #z3 = sec_objective_obstacle_avoidance(q, robot, J)
-    #z4 = sec_objective_base_rotate_to_ee(q, robot, J)
+    #z2 = sec_objective_rotate_base(q,robot, qd_task, f_denoised=f_denoised)
+    z3 = sec_objective_obstacle_avoidance(q, robot, J)
+    z4 = sec_objective_base_rotate_to_ee(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1 + z2) #+ z2 + z3)#+ z3 + z4) #+ z2 + z3)
+    qd_null = N @ (z1 + z3 + z4) #+ z2 + z3)#+ z3 + z4) #+ z2 + z3)
     qd = np.insert(qd_task + qd_null, 1, 0.0)#+ qd_null, 1, 0.0)  # re‑insert the removed DoF
     return qd
 
 
 def sec_objective_rotate_base(q,robot, qd_task,f_denoised,
-                            Kp_theta: float = 1.0,  # proportional gain for theta
+                            Kp_theta: float = 0.1,  # proportional gain for theta
                             Ki_theta: float = 0.05,  # integral gain for theta
                             integral_limit: float = np.pi):  # anti‑wind‑up saturation)
     z2 = np.zeros(8)
@@ -267,7 +267,7 @@ def sec_objective_rotate_base(q,robot, qd_task,f_denoised,
 
     print("Force rot:", force_rot, "base rotation", base_rot, angle_between_vectors(dir_force, [q[2], q[3]]))
 
-    if(np.linalg.norm(dir_force) < 1e-2):
+    if(np.linalg.norm(dir_force) < 3):
         theta_err = 0.0
     else:
         theta_err = angle_between_vectors(dir_force, [q[2], q[3]])
