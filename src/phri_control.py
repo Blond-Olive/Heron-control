@@ -23,10 +23,9 @@ M = np.diag([10, 10, 10, 0.05])  # Mass/inertia for admittance control
 damping_ratio = 2
 #D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
 D = np.diag([20, 20, 20, 4])
-base_weight = 0.3
-W=np.diag([0.25, 1, 1, 1, 1, 1, 0.25, 1])
+W=np.diag([0.25, 1, 1, 1, 1, 1, 1, 1])
 
-K_p = np.diag([3, 3, 3, 2])
+K_p = np.diag([3, 3, 3, 3])
 
 t = 0
 goincircle = False
@@ -236,11 +235,12 @@ def ik_with_nullspace(
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
     z2 = sec_objective_rotate_base(q,robot, qd_task, f)
     #z3 = sec_objective_obstacle_avoidance(q, robot, J)
+    z4=sec_objective_base_rotate_to_ee(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1)#+ z2) #+ z3)
+    qd_null = N @ (z1+z4)#+ z2) #+ z3)
     #qd = np.insert(qd_task, 1, 0.0)  # re‑insert the removed DoF
     qd = np.insert(qd_task + qd_null, 1, 0.0)
     return qd
@@ -264,22 +264,7 @@ def sec_objective_rotate_base(q,robot, qd_task,f,
     distance_ee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
     dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])"""
 
-    def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
-        """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
-        if np.linalg.norm(a) < 1e-6 or np.linalg.norm(b) < 1e-6:
-            #print("Warning: zero-length vector in angle calculation")
-            return 0.0
-        a_n = a / np.linalg.norm(a)
-        b_n = b / np.linalg.norm(b)
-        theta_a, theta_b = np.arctan2(a_n[1], a_n[0]), np.arctan2(b_n[1], b_n[0])
-        angle = (theta_a - theta_b + np.pi) % (2.0 * np.pi) - np.pi
-        # fold >90° to keep the control gentle
-        if angle > np.pi / 2:
-            angle -= np.pi
-        if angle < -np.pi / 2:
-            angle += np.pi
-        return angle
-
+    
 
     """weight_ee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_ee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
     weight_force = 1.0 - weight_ee
@@ -306,7 +291,7 @@ def sec_objective_rotate_base(q,robot, qd_task,f,
 
 def sec_objective_base_distance_to_ee(q, robot, J,
                             d_target: float = 0.5,  # desired base‑EE distance [m]
-                            Kp_d: float = 20.0):  # proportional gain for distance
+                            Kp_d: float = 40):  # proportional gain for distance
     
     (x_base, y_base, theta_base) = (q[0], q[1], np.arctan2(q[3], q[2]))
     T_w_e = robot.T_w_e
@@ -322,6 +307,20 @@ def sec_objective_base_distance_to_ee(q, robot, J,
     Jd = (dx * (Jx - Jbx) + dy * (Jy - Jby)) / d_current
     z1 = -Kp_d * Jd.T * (d_current - d_target)
     return z1
+
+def sec_objective_base_rotate_to_ee(q, robot, J,
+                            Kp_r: float = 0.1):  # proportional gain for distance
+    
+    T_w_e = robot.computeT_w_e(robot.q)
+    dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
+    dir_base = np.array([q[2], q[3]])
+    angle_to_ee = np.arctan2(dir_ee[1], dir_ee[0])
+    base_heading = np.arctan2(dir_base[1], dir_base[0])
+    angle_diff = angle_between_vectors(dir_ee, dir_base)
+    z = np.zeros(8) 
+    z[1] = Kp_r * angle_diff
+
+    return z
 
 def sec_objective_obstacle_avoidance(q, robot, J,
                                      Kp_d = 2.5, # proportional gain for distance
@@ -575,6 +574,22 @@ def local_to_global_point(point_local, T_w_e):
     point_global[:3] = R_w_e @ (point_local[:3] + t_w_e) #TODO Is this correct?
     point_global[3:] = R_w_e @ point_local[3:]  # rotation vector part unchanged    
     return point_global
+
+def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
+        """Signed smallest angle from *b* to *a* (counter‑clockwise positive)."""
+        if np.linalg.norm(a) < 1e-6 or np.linalg.norm(b) < 1e-6:
+            #print("Warning: zero-length vector in angle calculation")
+            return 0.0
+        a_n = a / np.linalg.norm(a)
+        b_n = b / np.linalg.norm(b)
+        theta_a, theta_b = np.arctan2(a_n[1], a_n[0]), np.arctan2(b_n[1], b_n[0])
+        angle = (theta_a - theta_b + np.pi) % (2.0 * np.pi) - np.pi
+        # fold >90° to keep the control gentle
+        if angle > np.pi / 2:
+            angle -= np.pi
+        if angle < -np.pi / 2:
+            angle += np.pi
+        return angle
 
 
 def savelogs():
