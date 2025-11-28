@@ -231,14 +231,14 @@ def ik_with_nullspace(
     z4 = simple_ik(tikhonov_damp=1e-3, q=q, J=J, err_vector=v_rot, robot=robot)
 
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
-    #z2 = sec_objective_rotate_base(q,robot, qd_task, f_denoised=f_denoised)
+    z2 = sec_objective_rotate_base(q,robot, qd_task, f_denoised=f_denoised)
     #z3 = sec_objective_obstacle_avoidance(q, robot, J)
     #z4 = sec_objective_base_rotate_to_ee(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1) #+ z2 + z3)#+ z3 + z4) #+ z2 + z3)
+    qd_null = N @ (z1 + z2) #+ z2 + z3)#+ z3 + z4) #+ z2 + z3)
     qd = np.insert(qd_task + qd_null, 1, 0.0)#+ qd_null, 1, 0.0)  # re‑insert the removed DoF
     return qd
 
@@ -251,13 +251,28 @@ def sec_objective_rotate_base(q,robot, qd_task,f_denoised,
 
     # EE velocity direction and base heading direction
     global ee_position_desired_old, force_pull_position
-    dir_force = np.array([f_denoised[0], f_denoised[1]])
-    base_rot_z=np.arctan2(q[3], q[2])
-    base_heading_global = [q[0], q[1],0,0,0,base_rot_z]
-    base_heading_local = global_to_local_point(base_heading_global, robot.computeT_w_e(robot.q))
-    dir_base = np.array([base_heading_local[0], base_heading_local[1]])
 
-    T_w_e = robot.computeT_w_e(robot.q)
+
+
+    """T_w_e = robot.computeT_w_e(robot.q)
+    R_w_e = T_w_e.rotation
+    f_global = R_w_e @ f_denoised"""
+    f_global = f_denoised
+
+    dir_force = np.array([f_global[0], f_global[1]])
+
+    
+    force_rot = np.arctan2(dir_force[1], dir_force[0])
+    base_rot= np.arctan2(q[3], -q[2])
+
+    print("Force rot:", force_rot, "base rotation", base_rot, angle_between_vectors(dir_force, [q[2], q[3]]))
+
+    if(np.linalg.norm(dir_force) < 1e-2):
+        theta_err = 0.0
+    else:
+        theta_err = angle_between_vectors(dir_force, [q[2], q[3]])
+
+    """T_w_e = robot.computeT_w_e(robot.q)
     distance_ee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
     dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
 
@@ -267,9 +282,9 @@ def sec_objective_rotate_base(q,robot, qd_task,f_denoised,
     weight_force = 1.0
     theta_err_force = angle_between_vectors(dir_force, dir_base)
     theta_err_vee = angle_between_vectors(dir_ee, dir_base)
-    theta_err = weight_force * theta_err_force + weight_ee * theta_err_vee
+    theta_err = weight_force * theta_err_force + weight_ee * theta_err_vee"""
 
-    # --------------------- theta integral control -------------------- #
+    """# --------------------- theta integral control -------------------- #
     # Persistent (static) accumulator stored on the function object
     if not hasattr(sec_objective_rotate_base, "_theta_int"):
         sec_objective_rotate_base._theta_int = 0.0
@@ -277,10 +292,10 @@ def sec_objective_rotate_base(q,robot, qd_task,f_denoised,
     # anti‑wind‑up clamping
     sec_objective_rotate_base._theta_int = np.clip(
         sec_objective_rotate_base._theta_int, -integral_limit, integral_limit
-    )
+    )"""
 
     # Proportional + integral term for theta control
-    v_rot = Kp_theta * theta_err + Ki_theta * sec_objective_rotate_base._theta_int
+    v_rot = Kp_theta * theta_err #+ Ki_theta * sec_objective_rotate_base._theta_int
     z2[1] = v_rot
     return z2
 
