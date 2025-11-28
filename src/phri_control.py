@@ -150,7 +150,7 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     
     #vel_ref = np.concatenate([vel_ref, np.zeros(3)])  # zero rotational velocity for now
 
-    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot)
+    v_cmd = ik_with_nullspace(1e-3, q, J, vel_ref, robot, f_denoised)
 
     robot.sendVelocityCommand(v_cmd)
 
@@ -209,6 +209,7 @@ def ik_with_nullspace(
     J,
     err_vector,
     robot,
+    f_denoised
 ):
     # Remove any control of the base by zeroing the base columns of J.
     # Convention in this code: base DoFs are the first 3 columns (indices 0,1,2).
@@ -230,19 +231,19 @@ def ik_with_nullspace(
     z4 = simple_ik(tikhonov_damp=1e-3, q=q, J=J, err_vector=v_rot, robot=robot)
 
     z1 = sec_objective_base_distance_to_ee(q, robot, J)
-    #z2 = sec_objective_rotate_base(q,robot, qd_task)
-    z3 = sec_objective_obstacle_avoidance(q, robot, J)
-    z2 = sec_objective_base_rotate_to_ee(q, robot, J)
+    #z2 = sec_objective_rotate_base(q,robot, qd_task, f_denoised=f_denoised)
+    #z3 = sec_objective_obstacle_avoidance(q, robot, J)
+    #z4 = sec_objective_base_rotate_to_ee(q, robot, J)
 
     I = np.eye(J.shape[1])
     N = I - J_pseudo @ J  # null‑space projector
 
-    qd_null = N @ (z1 + z2 + z3)#+ z3 + z4) #+ z2 + z3)
+    qd_null = N @ (z1) #+ z2 + z3)#+ z3 + z4) #+ z2 + z3)
     qd = np.insert(qd_task + qd_null, 1, 0.0)#+ qd_null, 1, 0.0)  # re‑insert the removed DoF
     return qd
 
 
-def sec_objective_rotate_base(q,robot, qd_task,
+def sec_objective_rotate_base(q,robot, qd_task,f_denoised,
                             Kp_theta: float = 1.0,  # proportional gain for theta
                             Ki_theta: float = 0.05,  # integral gain for theta
                             integral_limit: float = np.pi):  # anti‑wind‑up saturation)
@@ -250,8 +251,11 @@ def sec_objective_rotate_base(q,robot, qd_task,
 
     # EE velocity direction and base heading direction
     global ee_position_desired_old, force_pull_position
-    dir_force = np.array([force_pull_position[0] - ee_position_desired_old[0], force_pull_position[1] - ee_position_desired_old[1]])
-    dir_base = np.array([q[2], q[3]])
+    dir_force = np.array([f_denoised[0], f_denoised[1]])
+    base_rot_z=np.arctan2(q[3], q[2])
+    base_heading_global = [q[0], q[1],0,0,0,base_rot_z]
+    base_heading_local = global_to_local_point(base_heading_global, robot.computeT_w_e(robot.q))
+    dir_base = np.array([base_heading_local[0], base_heading_local[1]])
 
     T_w_e = robot.computeT_w_e(robot.q)
     distance_ee = np.hypot(T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1])
@@ -259,8 +263,8 @@ def sec_objective_rotate_base(q,robot, qd_task,
 
 
     weight_ee = np.min([1.0, 1.0/50.0 * 1.0/(1.1-distance_ee)**2]) # When distance_vee approaches 1, weight_vee approaches 1
-    weight_force = 1.0 - weight_ee
-
+    #weight_force = 1.0 - weight_ee
+    weight_force = 1.0
     theta_err_force = angle_between_vectors(dir_force, dir_base)
     theta_err_vee = angle_between_vectors(dir_ee, dir_base)
     theta_err = weight_force * theta_err_force + weight_ee * theta_err_vee
@@ -309,7 +313,6 @@ def sec_objective_base_rotate_to_ee(q, robot, J,
     angle_diff = angle_between_vectors(dir_ee, dir_base)
     z = np.zeros(8) 
     z[1] = Kp_r * angle_diff
-    print("angle_diff:", angle_diff, "current base heading:", base_heading, "angle to ee:", angle_to_ee)
 
     return z
 
