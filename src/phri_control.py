@@ -66,9 +66,9 @@ def move(args: Namespace, robot: SingleArmInterface, getForce, run=True):
     ee_rotation_desired = None
 
     global x1, x2, vel_desired
-    vel_desired = np.array([0.0, 0.0, 0.0, 0.0])
+    vel_desired = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     x1 = np.array([0.0, 0.0, 0.0, 0.0]) # pos reference - position desired = 0
-    x2 = vel_desired
+    x2 = vel_desired[:4]
 
     controlLoop = partial(controlLoopFunction, args, robot)
     # we're not using any past data or logging, hence the empty arguments
@@ -376,7 +376,7 @@ def admittance_control(robot, J, f_local):
     # Transform positions to end-effector frame for consistent computation
     T_w_e = robot.computeT_w_e(robot.q)
     R_w_e = T_w_e.rotation
-
+    
     # Spring mode: transform desired position to local frame for spring behavior
     ee_position_desired_local = np.zeros(4)#+1 DoF  to give admittnace around x-axis
     ee_position_desired_local[:3] = R_w_e.T @ (ee_position_desired[:3] - T_w_e.translation)
@@ -388,11 +388,16 @@ def admittance_control(robot, J, f_local):
     ee_position_desired_local[3] = ee_rotation_desired_local[0]
     
     # Transform desired velocity to local frame
+    skew_symmetric_tt_vel = skew_symmetric(-R_w_e.T@T_w_e.translation)
+
     vel_desired_local = np.zeros_like(vel_desired) # !! vel_desired is currently zero!!
-    vel_desired_local[:3] = R_w_e.T @ vel_desired[:3]
+    vel_desired_local[:3] = R_w_e.T @ vel_desired[:3]+skew_symmetric_tt_vel@R_w_e.T@vel_desired[3:]
     vel_desired_temp_rot = np.zeros(3)
     vel_desired_temp_rot_local = R_w_e.T @ vel_desired_temp_rot
     vel_desired_local[3] = vel_desired_temp_rot_local[0]
+    vel_desired_local = vel_desired_local[:3+1]  # only 4 DoF for now
+
+     
 
 
     # Compute admittance dynamics with numerical safety
@@ -461,6 +466,11 @@ def admittance_control(robot, J, f_local):
     if np.linalg.norm(vel_ref_local) > 3.0:
         print("Warning: High output velocity:", vel_ref_local)
         vel_ref_local = np.zeros_like(vel_ref_local)
+    if controlLoopFunction.iteration % 750 == 0:
+        print("ee_position_desired_local:", ee_position_desired_local)
+        print("ee_position:", ee_position)
+        print("f_local:", f_local)
+        print("vel_ref",vel_ref_local)
 
     return vel_ref_local
 
@@ -590,6 +600,11 @@ def angle_between_vectors(a: np.ndarray, b: np.ndarray) -> float:
         if angle < -np.pi / 2:
             angle += np.pi
         return angle
+def skew_symmetric(v):
+    """Return the skew-symmetric matrix of a 3D vector."""
+    return np.array([[0, -v[2], v[1]],
+                     [v[2], 0, -v[0]],
+                     [-v[1], v[0], 0]])
 
 
 def savelogs():
