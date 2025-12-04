@@ -14,7 +14,17 @@ import tty
 import scipy.io as sio
 
 
+<<<<<<< HEAD
 ee_position = np.array([0.0, 0.0, 0.0])
+=======
+D = None
+D_spring = np.diag([20, 20, 20, 10, 10, 10]) 
+D_movable = np.diag([200, 200, 200, 10, 10, 5])  # More moderate damping to avoid numerical issues
+K = None
+K_spring = np.diag([10, 10, 10, 2, 2, 2])
+K_movable = np.diag([0, 0, 0, 0, 0, 0])  # Very low stiffness for movable mode
+K_p = np.diag([3, 3, 3, 0.5, 0.5, 0.5])
+>>>>>>> main
 
 K_rot = np.diag([1, 1, 1]) # Only spring for rotational part
 M = np.diag([10, 10, 10])  # Mass/inertia for admittance control
@@ -104,7 +114,10 @@ def controlLoopFunction(args: Namespace, robot: SingleArmInterface, new_pose, i)
     if(controlLoopFunction.iteration < 100):
         return breakFlag, save_past_item, log_item
 
-    q = robot.q
+    if(args.real):
+        q = robot.q #Time delay will be from robot measurements
+    else:
+        q = getqWithTimeDelay(robot)
 
     v_max = np.pi/40
     # v = np.clip(K * v_max, -v_max, v_max)
@@ -551,6 +564,18 @@ def ensure_rot_vec_continuity(curr, prev):
         if np.linalg.norm(flipped - prev) < np.linalg.norm(curr - prev):
             return flipped
     return curr
+
+def getqWithTimeDelay(robot: SingleArmInterface, delay_ms: int = 100):
+    # Get the joint positions with a time delay to simulate real robot latency
+    delay_steps = int(delay_ms / 1000 / robot.dt)
+    if not hasattr(getqWithTimeDelay, "q_buffer"):
+        getqWithTimeDelay.q_buffer = [robot.q.copy()] * (delay_steps + 1)
+    getqWithTimeDelay.q_buffer.append(robot.q.copy())
+    if len(getqWithTimeDelay.q_buffer) > delay_steps + 1:
+        delayed_q = getqWithTimeDelay.q_buffer.pop(0)
+    else:
+        delayed_q = robot.q.copy()
+    return delayed_q
     
 def global_to_local_vector(vector_global, T_w_e):
     R_w_e = T_w_e.rotation
