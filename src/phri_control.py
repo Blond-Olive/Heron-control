@@ -17,12 +17,12 @@ ee_position = np.array([0.0, 0.0, 0.0, 0.0])
 f_list=[]
 
 K_rot = np.diag([0, 1, 1]) # Only spring for rotational part
-M = np.diag([10, 10, 10, 0.05])  # Mass/inertia for admittance control
+M = np.diag([10, 10, 10, 0.03])  # Mass/inertia for admittance control
 # when M was 1, 1, 1 it made oscillations worse
 
 damping_ratio = 2
 #D_rot = damping_ratio*2*np.sqrt(M[3:, 3:]@K_rot[3:, 3:])
-D = np.diag([20, 20, 20, 4])
+D = np.diag([20, 20, 20, 2])
 W=np.diag([0.25, 1, 1, 1, 1, 1, 1, 1])
 
 K_p = np.diag([3, 3, 3, 3])
@@ -309,7 +309,7 @@ def sec_objective_base_distance_to_ee(q, robot, J,
     return z1
 
 def sec_objective_base_rotate_to_ee(q, robot, J,
-                            Kp_r: float = 0.1):  # proportional gain for distance
+                            Kp_r: float = 0.2):  # proportional gain for distance
     
     T_w_e = robot.computeT_w_e(robot.q)
     dir_ee = np.array([T_w_e.translation[0] - q[0], T_w_e.translation[1] - q[1]])
@@ -466,11 +466,13 @@ def admittance_control(robot, J, f_local):
     if np.linalg.norm(vel_ref_local) > 3.0:
         print("Warning: High output velocity:", vel_ref_local)
         vel_ref_local = np.zeros_like(vel_ref_local)
-    if controlLoopFunction.iteration % 750 == 0:
-        print("ee_position_desired_local:", ee_position_desired_local)
-        print("ee_position:", ee_position)
+    if controlLoopFunction.iteration % 250 == 0:
         print("f_local:", f_local)
-        print("vel_ref",vel_ref_local)
+        vel_print=np.zeros_like(vel_ref_local)
+        for i in range(vel_ref_local.shape[0]):
+            if abs(vel_ref_local[i]) > 0.05:
+                vel_print[i] = vel_ref_local[i]
+        print("vel_ref_local:", vel_print)
 
     return vel_ref_local
 
