@@ -53,11 +53,11 @@ if __name__ == "__main__":
         # Correct the coordinate frame: sensor Y maps to robot Z, sensor Z maps to robot -Y
         corrected_wrench = np.zeros_like(raw_wrench)
         corrected_wrench[0] = raw_wrench[0]  # X unchanged
-        corrected_wrench[1] = raw_wrench[2]  # Y = -sensor_Z
-        corrected_wrench[2] = -raw_wrench[1]   # Z = sensor_Y
+        corrected_wrench[1] = raw_wrench[1]  # Y = -sensor_Z
+        corrected_wrench[2] = raw_wrench[2]   # Z = sensor_Y
         corrected_wrench[3] = raw_wrench[3]   # Torque X unchanged
-        corrected_wrench[4] = raw_wrench[5]  # Torque Y = -sensor_torque_Z
-        corrected_wrench[5] = -raw_wrench[4]   # Torque Z = sensor_torque_Y
+        corrected_wrench[4] = raw_wrench[4]  # Torque Y = -sensor_torque_Z
+        corrected_wrench[5] = raw_wrench[5]   # Torque Z = sensor_torque_Y
 
         """ corrected_wrench_2 = corrected_wrench.copy()
         gravityMagnitude = 4  # approximate gravity force magnitude in Newtons
